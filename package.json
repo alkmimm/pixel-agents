@@ -29,13 +29,9 @@
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
-  "bin": {
-    "pixel-agents": "./dist/cli.js"
-  },
   "files": [
     "CHANGELOG.md",
     "LICENSE",
-    "dist/cli.js",
     "dist/extension.js",
     "dist/hooks/claude-hook.js",
     "dist/hooks/claude-statusline.js",

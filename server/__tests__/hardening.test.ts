@@ -97,3 +97,23 @@ describe('H2: loopback-only bind', () => {
     expect(() => parseArgs(['--allowed-host', 'proxy.example'])).toThrow();
   });
 });
+
+describe('H3: no standalone CLI and no PTY in the extension package', () => {
+  it('package.json exposes no bin and ships neither the CLI nor the PTY host', () => {
+    expect(rootPackage.bin).toBeUndefined();
+    const files = rootPackage.files ?? [];
+    expect(files.length).toBeGreaterThan(0);
+    for (const entry of files) {
+      expect(entry).not.toMatch(/cli\.js|pty-host|node_modules|node-pty/);
+    }
+  });
+
+  it('the VS Code adapter never wires a PTY', () => {
+    const adapterFiles = fs
+      .readdirSync(path.join(REPO_ROOT, 'adapters/vscode'))
+      .map((f) => fs.readFileSync(path.join(REPO_ROOT, 'adapters/vscode', f), 'utf-8'));
+    for (const text of adapterFiles) {
+      expect(text).not.toMatch(/PtySessionManager|RemotePtySessions|ptyManager|node-pty/);
+    }
+  });
+});
