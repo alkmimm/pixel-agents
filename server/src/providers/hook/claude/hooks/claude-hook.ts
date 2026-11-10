@@ -5,7 +5,10 @@ import { filterHookPayload } from './hookPayloadFilter.js';
 import { liveServers, postToServer } from './serverRegistry.js';
 
 /** Per-server POST timeout. */
-const HOOK_POST_TIMEOUT_MS = 2000;
+// pixel-agents-secure: Claude Code waits for this script on every tool call. A
+// healthy local server answers in under a millisecond; one that does not answer
+// must cost the agent 300 ms, not 2 s.
+const HOOK_POST_TIMEOUT_MS = 300;
 
 /**
  * CI / e2e diagnostic: when PIXEL_AGENTS_DEBUG_LOG is set, record the hook
@@ -21,7 +24,7 @@ const HOOK_POST_TIMEOUT_MS = 2000;
 // inheritEnv:false, etc.). After reading the registry we fall back to a
 // live server's `debugLog` field, which the server populated from the same
 // env var.
-let debugLogPath = process.env['PIXEL_AGENTS_DEBUG_LOG'];
+const debugLogPath = process.env['PIXEL_AGENTS_DEBUG_LOG'];
 function hookDebug(line: string): void {
   if (!debugLogPath) return;
   try {
@@ -52,12 +55,10 @@ async function main(): Promise<void> {
   const servers = liveServers(hookDebug, label);
   if (servers === null) process.exit(0);
 
-  // Adopt the first live server's debug-log path if the env var didn't reach
-  // us (diagnostic-only; harmless if more than one server has it set).
-  if (!debugLogPath) {
-    const withDebugLog = servers.find((s) => s.debugLog);
-    if (withDebugLog?.debugLog) debugLogPath = withDebugLog.debugLog;
-  }
+  // pixel-agents-secure (H9): the debug-log path comes from this process's own
+  // environment only. Upstream also adopted it from a registry entry, which let
+  // anything able to write ~/.pixel-agents/servers/ make every hook append to a
+  // file of its choosing.
 
   // pixel-agents-secure (H4): only the allowlisted, capped fields leave this
   // process -- never tool_input contents, tool_response or prompt text.
