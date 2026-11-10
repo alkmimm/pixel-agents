@@ -925,9 +925,10 @@ describe('viewer review fixes (H11, H12, H14)', () => {
     const adapter = new ViewerStateAdapter({ namespace: 'standalone' });
     // Persisted default is off, and the viewer never writes a setting.
     adapter.setSetting('pixel-agents.watchAllSessions', false);
-    adapter.setSetting('pixel-agents.soundEnabled', true);
+    const soundBefore = adapter.getSetting('pixel-agents.soundEnabled', false);
+    adapter.setSetting('pixel-agents.soundEnabled', !soundBefore);
     expect(adapter.getSetting('pixel-agents.watchAllSessions', false)).toBe(true);
-    expect(adapter.getSetting('pixel-agents.soundEnabled', false)).toBe(false);
+    expect(adapter.getSetting('pixel-agents.soundEnabled', false)).toBe(soundBefore);
 
     const store = new AgentStateStore();
     store.setAdapter(adapter);
