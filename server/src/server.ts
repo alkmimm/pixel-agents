@@ -18,6 +18,7 @@ import {
   SERVERS_DIR,
 } from './constants.js';
 import { createHttpServer } from './httpServer.js';
+import { ensurePrivateDir, writePrivateFileAtomic } from './privateFile.js';
 import type { ServerConfig, StandaloneAccess } from './serverConfig.js';
 import { isServerConfig, isServerTarget, sameStandaloneAccess } from './serverConfig.js';
 import { loadOrCreateStandaloneToken } from './serverToken.js';
@@ -198,17 +199,11 @@ export class PixelAgentsServer {
     return path.join(os.homedir(), SERVER_JSON_DIR, SERVER_JSON_NAME);
   }
 
-  /** Write server.json atomically (tmp + rename) with mode 0o600. */
+  /** Write server.json atomically (tmp + rename), owner-only (H5: privateFile.ts). */
   private writeServerJson(config: ServerConfig): void {
     const filePath = this.getServerJsonPath();
-    const dir = path.dirname(filePath);
     try {
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-      }
-      const tmpPath = filePath + '.tmp';
-      fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2), { mode: 0o600 });
-      fs.renameSync(tmpPath, filePath);
+      writePrivateFileAtomic(filePath, JSON.stringify(config, null, 2));
     } catch (e) {
       console.error(`[Pixel Agents] Failed to write server.json: ${e}`);
     }
@@ -293,17 +288,12 @@ export class PixelAgentsServer {
     return live;
   }
 
-  /** Write this server's registry entry atomically (tmp + rename) with mode 0o600. */
+  /** Write this server's registry entry atomically (tmp + rename), owner-only
+   *  (H5: privateFile.ts), with ~/.pixel-agents and servers/ both made 0700. */
   private writeRegistryEntry(config: ServerConfig): void {
-    const dir = this.getRegistryDir();
     try {
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-      }
-      const filePath = this.getRegistryFilePath(config);
-      const tmpPath = `${filePath}.tmp`;
-      fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2), { mode: 0o600 });
-      fs.renameSync(tmpPath, filePath);
+      ensurePrivateDir(path.dirname(this.getRegistryDir()));
+      writePrivateFileAtomic(this.getRegistryFilePath(config), JSON.stringify(config, null, 2));
     } catch (e) {
       console.error(`[Pixel Agents] Failed to write registry entry: ${e}`);
     }

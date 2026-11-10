@@ -243,3 +243,30 @@ describe('H4: the hook forwards an allowlisted, capped payload', () => {
     expect(script).not.toMatch(/JSON\.stringify\(data\)/);
   });
 });
+
+describe.skipIf(process.platform === 'win32')('H5: discovery files are owner-only', () => {
+  it('tightens a loose ~/.pixel-agents and never reuses a loose leftover .tmp', async () => {
+    const os = await import('os');
+    const { PixelAgentsServer } = await import('../src/server.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const dir = path.join(os.homedir(), '.pixel-agents');
+    // As config/layout persistence leaves it, plus a crash's leftover temp file.
+    fs.mkdirSync(path.join(dir, 'servers'), { recursive: true });
+    fs.chmodSync(dir, 0o755);
+    fs.chmodSync(path.join(dir, 'servers'), 0o755);
+    fs.writeFileSync(path.join(dir, 'server.json.tmp'), '{}', { mode: 0o644 });
+
+    const server = new PixelAgentsServer();
+    const config = await server.start({ store: new AgentStateStore(), embedded: true });
+    try {
+      const mode = (p: string) => fs.statSync(p).mode & 0o777;
+      expect(mode(dir)).toBe(0o700);
+      expect(mode(path.join(dir, 'servers'))).toBe(0o700);
+      expect(mode(path.join(dir, 'server.json'))).toBe(0o600);
+      expect(mode(path.join(dir, 'servers', `${config.pid}-${config.port}.json`))).toBe(0o600);
+      expect(fs.existsSync(path.join(dir, 'server.json.tmp'))).toBe(false);
+    } finally {
+      server.stop();
+    }
+  });
+});
