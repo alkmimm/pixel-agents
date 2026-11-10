@@ -57,7 +57,7 @@ export class ViewerStateAdapter extends FileStateAdapter {
     return super.getSetting(key, defaultValue);
   }
 
-  override setSetting(): void {
+  override setSetting<T>(_key: string, _value: T): void {
     // Read-only: settings belong to the VS Code extension.
   }
 }
