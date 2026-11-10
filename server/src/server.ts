@@ -138,6 +138,9 @@ export class PixelAgentsServer {
     const { app, port } = await createHttpServer({
       embedded,
       readOnly: options?.readOnly ?? false,
+      viewerSessionsFile: options?.readOnly
+        ? path.join(os.homedir(), SERVER_JSON_DIR, 'viewer-sessions.json')
+        : undefined,
       host,
       port: options?.port,
       token,

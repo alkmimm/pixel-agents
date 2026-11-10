@@ -588,6 +588,19 @@ describe.skipIf(!fs.existsSync(BUNDLED_HOOK))('H4 + H9: the bundled hook script'
   });
 });
 
+/** The viewer's login: trade the token for a one-time code, the code for a cookie. */
+async function viewerLogin(port: number, token: string): Promise<string> {
+  const base = `http://127.0.0.1:${port}`;
+  const { code } = (await (
+    await fetch(`${base}/api/login-code`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+    })
+  ).json()) as { code: string };
+  const res = await fetch(`${base}/?code=${encodeURIComponent(code)}`, { redirect: 'manual' });
+  return (res.headers.get('set-cookie') ?? '').split(';')[0];
+}
+
 describe('H11: the office viewer is read-only', () => {
   it('a read-only server refuses every state-changing message, even with the token', async () => {
     const { WebSocket } = await import('ws');
@@ -604,9 +617,8 @@ describe('H11: the office viewer is read-only', () => {
       },
     });
     try {
-      const ws = new WebSocket(
-        `ws://127.0.0.1:${config.port}/ws?token=${encodeURIComponent(config.token)}`,
-      );
+      const cookie = await viewerLogin(config.port, config.token);
+      const ws = new WebSocket(`ws://127.0.0.1:${config.port}/ws`, { headers: { cookie } });
       const messages: Array<{ type?: string; readOnly?: boolean }> = [];
       ws.on('message', (data: Buffer) => messages.push(JSON.parse(data.toString())));
       await new Promise<void>((resolve, reject) => {
@@ -626,9 +638,9 @@ describe('H11: the office viewer is read-only', () => {
       // No terminal route: the path falls through to the SPA fallback or 404,
       // never to a WebSocket upgrade.
       const upgraded = await new Promise<boolean>((resolve) => {
-        const t = new WebSocket(
-          `ws://127.0.0.1:${config.port}/terminal/1?token=${encodeURIComponent(config.token)}`,
-        );
+        const t = new WebSocket(`ws://127.0.0.1:${config.port}/terminal/1`, {
+          headers: { cookie },
+        });
         t.on('open', () => {
           t.close();
           resolve(true);
@@ -697,6 +709,158 @@ describe.skipIf(!fs.existsSync(BUNDLED_VIEWER))('H11 + H15: the bundled viewer',
     } finally {
       child.kill('SIGTERM');
       await new Promise((resolve) => child.on('exit', resolve));
+    }
+  });
+});
+
+describe('H12 + H13 + H14: viewer access', () => {
+  async function startViewer() {
+    const { PixelAgentsServer } = await import('../src/server.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const server = new PixelAgentsServer();
+    const config = await server.start({
+      store: new AgentStateStore(),
+      embedded: false,
+      readOnly: true,
+    });
+    return { server, port: config.port, token: config.token, base: `http://127.0.0.1:${config.port}` };
+  }
+
+  it('H12: serves nothing and upgrades no socket without a session', async () => {
+    const { WebSocket } = await import('ws');
+    const { server, port, token, base } = await startViewer();
+    try {
+      for (const p of ['/', '/index.html', '/assets/x.js', '/ws']) {
+        expect((await fetch(`${base}${p}`)).status, p).toBe(401);
+      }
+      const opened = (headers: Record<string, string>) =>
+        new Promise<boolean>((resolve) => {
+          const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers });
+          ws.on('open', () => {
+            ws.close();
+            resolve(true);
+          });
+          ws.on('unexpected-response', (req, res) => {
+            res.resume();
+            req.destroy();
+            resolve(false);
+          });
+          ws.on('error', () => resolve(false));
+        });
+      expect(await opened({})).toBe(false);
+      expect(await opened({ cookie: 'pa_office=forged' })).toBe(false);
+      // The token alone, in the query as upstream carries it, opens nothing.
+      expect((await fetch(`${base}/?token=${encodeURIComponent(token)}`)).status).toBe(401);
+      expect(await opened({ cookie: await viewerLogin(port, token) })).toBe(true);
+    } finally {
+      server.stop();
+    }
+  });
+
+  it('H13: the token never rides a URL; a one-time code becomes an HttpOnly, SameSite=Strict cookie', async () => {
+    const { server, token, base } = await startViewer();
+    try {
+      // No code without the token.
+      expect((await fetch(`${base}/api/login-code`, { method: 'POST' })).status).toBe(401);
+      expect(
+        (
+          await fetch(`${base}/api/login-code`, {
+            method: 'POST',
+            headers: { authorization: 'Bearer wrong' },
+          })
+        ).status,
+      ).toBe(401);
+      const { code } = (await (
+        await fetch(`${base}/api/login-code`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}` },
+        })
+      ).json()) as { code: string };
+      expect(code).not.toBe(token);
+
+      const login = await fetch(`${base}/?code=${encodeURIComponent(code)}`, { redirect: 'manual' });
+      expect(login.status).toBe(302);
+      expect(login.headers.get('location')).toBe('/');
+      const setCookie = login.headers.get('set-cookie') ?? '';
+      expect(setCookie).toMatch(/^pa_office=[A-Za-z0-9_-]{40,};/);
+      expect(setCookie).toContain('HttpOnly');
+      expect(setCookie).toContain('SameSite=Strict');
+      expect(setCookie).toContain('Path=/');
+      expect(setCookie).not.toContain(token);
+
+      // Single use: the same code buys nothing the second time.
+      const again = await fetch(`${base}/?code=${encodeURIComponent(code)}`, { redirect: 'manual' });
+      expect(again.status).toBe(401);
+      expect(again.headers.get('set-cookie')).toBeNull();
+      expect((await fetch(`${base}/?code=made-up`, { redirect: 'manual' })).status).toBe(401);
+
+      // With the cookie the gate opens (404: this test server has no SPA to serve).
+      const cookie = setCookie.split(';')[0];
+      expect((await fetch(`${base}/anything`, { headers: { cookie } })).status).toBe(404);
+    } finally {
+      server.stop();
+    }
+  });
+
+  it('H13: codes expire, and only session hashes are ever persisted', async () => {
+    const os = await import('os');
+    const { createViewerSessions, LOGIN_CODE_TTL_MS, sessionCookie } = await import(
+      '../src/viewerAccess.js'
+    );
+    let clock = 1_000_000;
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-viewer-sessions-')), 's.json');
+    const sessions = createViewerSessions({ file, now: () => clock });
+    const stale = sessions.issueCode();
+    clock += LOGIN_CODE_TTL_MS + 1;
+    expect(sessions.redeem(stale)).toBeNull();
+
+    const session = sessions.redeem(sessions.issueCode())!;
+    expect(sessions.hasSession(sessionCookie(session).split(';')[0])).toBe(true);
+    const onDisk = fs.readFileSync(file, 'utf-8');
+    expect(onDisk).not.toContain(session);
+    expect(fs.statSync(file).mode & 0o077).toBe(0);
+    // A restarted viewer still knows the session.
+    const restarted = createViewerSessions({ file, now: () => clock });
+    expect(restarted.hasSession(`pa_office=${session}`)).toBe(true);
+    expect(restarted.hasSession('pa_office=other')).toBe(false);
+  });
+
+  it('H14: every answer carries the CSP and hardening headers, refusals included', async () => {
+    const { server, port, token, base } = await startViewer();
+    try {
+      const cookie = await viewerLogin(port, token);
+      for (const res of [
+        await fetch(`${base}/`),
+        await fetch(`${base}/anything`, { headers: { cookie } }),
+        await fetch(`${base}/api/health`),
+      ]) {
+        const csp = res.headers.get('content-security-policy') ?? '';
+        expect(csp).toContain("default-src 'none'");
+        expect(csp).toContain("script-src 'self'");
+        expect(csp).toContain("frame-ancestors 'none'");
+        expect(csp).toContain(`connect-src 'self' ws://127.0.0.1:${port} ws://localhost:${port}`);
+        expect(csp).not.toMatch(/unsafe-eval|https?:|\*/);
+        expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+        expect(res.headers.get('x-frame-options')).toBe('DENY');
+        expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+        expect(res.headers.get('cache-control')).toBe('no-store');
+      }
+    } finally {
+      server.stop();
+    }
+  });
+
+  it('a server that is not the viewer keeps the upstream behaviour (no gate, no viewer headers)', async () => {
+    const { PixelAgentsServer } = await import('../src/server.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const server = new PixelAgentsServer();
+    const { port } = await server.start({ store: new AgentStateStore(), embedded: true });
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-security-policy')).toBeNull();
+    } finally {
+      server.stop();
     }
   });
 });

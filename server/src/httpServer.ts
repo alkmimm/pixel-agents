@@ -27,6 +27,7 @@ import { isRecord } from './serverConfig.js';
 import { registerTerminalRoutes } from './terminal/terminalRoutes.js';
 import type { TerminalSessions } from './terminal/terminalSessions.js';
 import type { AgentState } from './types.js';
+import { createViewerSessions, registerViewerAccess } from './viewerAccess.js';
 import {
   PRIVILEGED_BROADCAST_TYPES,
   recordUsageReport,
@@ -48,6 +49,8 @@ export interface HttpServerOptions {
   /** pixel-agents-secure (H11): the office viewer. No client is ever
    *  privileged, whatever token it carries, and no terminal route exists. */
   readOnly?: boolean;
+  /** Where a read-only server keeps its browser sessions (hashes only). */
+  viewerSessionsFile?: string;
   /** Host to bind to. Default: '127.0.0.1' */
   host?: string;
   /** Port to listen on. Default: 0 (auto-assign) */
@@ -132,6 +135,17 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
     }
   });
 
+  // pixel-agents-secure (H12-H14): the viewer answers nothing without a
+  // session and sends its security headers on everything (viewerAccess.ts).
+  let listeningPort = options.port ?? 0;
+  if (options.readOnly) {
+    registerViewerAccess(app, {
+      token: options.token,
+      sessions: createViewerSessions({ file: options.viewerSessionsFile }),
+      port: () => listeningPort,
+    });
+  }
+
   // pixel-agents-secure (H7): no CORS. Legitimate clients are same-origin (the
   // standalone SPA) or not browsers (hook scripts); reflecting every Origin
   // only let arbitrary web pages read our responses (e.g. /api/health).
@@ -170,6 +184,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
   await app.listen({ host, port: options.port ?? 0 });
   const address = app.server.address();
   const port = typeof address === 'object' ? (address?.port ?? 0) : 0;
+  listeningPort = port;
 
   return { app, port };
 }
