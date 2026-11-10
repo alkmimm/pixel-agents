@@ -447,3 +447,135 @@ describe('H10: the package build runs only what the package needs', () => {
     expect(scripts['package:secure']).not.toMatch(/asyncapi|lint|generate/);
   });
 });
+
+describe('H7 (routes that matter): a forged Host reaches no handler', () => {
+  it('refuses the hook POST and the /ws upgrade under a foreign Host, even with the token', async () => {
+    const http = await import('http');
+    const { WebSocket } = await import('ws');
+    const { createHttpServer } = await import('../src/httpServer.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    let handled = 0;
+    const { app, port } = await createHttpServer({
+      embedded: true,
+      token: 't',
+      store: new AgentStateStore(),
+      onHookEvent: () => handled++,
+    });
+    const body = JSON.stringify({ session_id: 's', hook_event_name: 'Stop' });
+    const post = (host?: string) =>
+      new Promise<number>((resolve, reject) => {
+        const req = http.request(
+          {
+            hostname: '127.0.0.1',
+            port,
+            path: '/api/hooks/claude',
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              authorization: 'Bearer t',
+              ...(host ? { host } : {}),
+            },
+          },
+          (res) => {
+            res.resume();
+            resolve(res.statusCode ?? 0);
+          },
+        );
+        req.on('error', reject);
+        req.end(body);
+      });
+    try {
+      expect(await post(`evil.example:${port}`)).toBe(403);
+      expect(handled).toBe(0);
+      expect(await post()).toBe(200);
+      expect(handled).toBe(1);
+
+      const opened = await new Promise<boolean>((resolve) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
+          headers: { host: `evil.example:${port}`, authorization: 'Bearer t' },
+        });
+        ws.on('open', () => {
+          ws.close();
+          resolve(true);
+        });
+        ws.on('unexpected-response', () => resolve(false));
+        ws.on('error', () => resolve(false));
+      });
+      expect(opened).toBe(false);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+// The BUNDLED hook script, as Claude Code runs it. Needs dist/ (the governance
+// build runs this suite after building, and fails on any skipped test).
+const BUNDLED_HOOK = path.join(REPO_ROOT, 'dist/hooks/claude-hook.js');
+describe.skipIf(!fs.existsSync(BUNDLED_HOOK))('H4 + H9: the bundled hook script', () => {
+  it('posts only the filtered payload, prints nothing, exits 0, and ignores a registry debugLog', async () => {
+    const http = await import('http');
+    const os = await import('os');
+    const { spawn } = await import('child_process');
+    const { SERVER_REGISTRY_PROTOCOL_VERSION } = await import('../src/constants.js');
+
+    const received: string[] = [];
+    const server = http.createServer((req, res) => {
+      let data = '';
+      req.on('data', (c: Buffer) => (data += c.toString()));
+      req.on('end', () => {
+        received.push(data);
+        res.end('ok');
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as { port: number }).port;
+
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-hardening-hook-'));
+    const planted = path.join(home, 'planted-by-registry.log');
+    const servers = path.join(home, '.pixel-agents', 'servers');
+    fs.mkdirSync(servers, { recursive: true });
+    fs.writeFileSync(
+      path.join(servers, `${process.pid}-${port}.json`),
+      JSON.stringify({
+        port,
+        pid: process.pid,
+        token: 'registry-token',
+        startedAt: Date.now(),
+        servesSpa: false,
+        protocol: SERVER_REGISTRY_PROTOCOL_VERSION,
+        debugLog: planted,
+      }),
+    );
+
+    const env = { ...process.env, HOME: home, USERPROFILE: home };
+    delete env['PIXEL_AGENTS_DEBUG_LOG'];
+    const child = spawn(process.execPath, [BUNDLED_HOOK], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    child.stdout.on('data', (c: Buffer) => (stdout += c.toString()));
+    child.stdin.end(
+      JSON.stringify({
+        session_id: 's1',
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Write',
+        tool_input: { file_path: '/home/u/private/notes.md', content: 'TOP SECRET' },
+        tool_response: 'TOP SECRET',
+        prompt: 'TOP SECRET',
+      }),
+    );
+    const code = await new Promise<number | null>((resolve) => child.on('exit', resolve));
+    server.close();
+
+    expect(code).toBe(0);
+    expect(stdout).toBe('');
+    expect(received).toHaveLength(1);
+    expect(received[0]).not.toContain('TOP SECRET');
+    expect(received[0]).not.toContain('/home/u/private');
+    expect(JSON.parse(received[0])).toEqual({
+      hook_event_name: 'PreToolUse',
+      session_id: 's1',
+      tool_name: 'Write',
+      tool_input: { file_path: 'notes.md' },
+    });
+    expect(fs.existsSync(planted)).toBe(false);
+  });
+});
