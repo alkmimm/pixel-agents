@@ -139,6 +139,11 @@ export interface HookProvider {
     event: AgentEvent;
   } | null;
 
+  /** pixel-agents-secure (H4): reduce a raw hook payload to the fields this
+   *  provider reads, before anything else in the server sees it. The server
+   *  drops events from a provider that does not implement it. */
+  sanitizeHookPayload?(raw: Record<string, unknown>): Record<string, unknown>;
+
   /** Install hook scripts that POST to our server. */
   installHooks(serverUrl: string, authToken: string): Promise<void>;
   /** Remove installed hook scripts. */

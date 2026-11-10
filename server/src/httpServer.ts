@@ -23,6 +23,7 @@ import {
 } from './constants.js';
 import { applyReportedContext } from './contextUsage.js';
 import { hookProviderById } from './providers/index.js';
+import { isRecord } from './serverConfig.js';
 import { registerTerminalRoutes } from './terminal/terminalRoutes.js';
 import type { TerminalSessions } from './terminal/terminalSessions.js';
 import type { AgentState } from './types.js';
@@ -193,7 +194,12 @@ function registerHookRoute(app: FastifyInstance, options: HttpServerOptions): vo
     },
     async (request, reply) => {
       const { providerId } = request.params;
-      const event = request.body;
+      // pixel-agents-secure (H4): the filter runs here too, not only in the
+      // hook script. ~/.pixel-agents/hooks/claude-hook.js is a path shared with
+      // the upstream extension, so an unfiltered script can still POST; and a
+      // provider with no filter gets nothing through.
+      const sanitize = hookProviderById(providerId)?.sanitizeHookPayload;
+      const event = sanitize && isRecord(request.body) ? sanitize(request.body) : {};
 
       if (event.session_id && event.hook_event_name) {
         options.onHookEvent?.(providerId, event);

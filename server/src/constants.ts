@@ -122,7 +122,9 @@ export const HOOK_EVENT_BUFFER_MS = 5_000;
  *  safety net: if SessionStart never arrives (e.g. the CLI crashes mid-transition),
  *  the agent is cleaned up instead of staying as a zombie with pendingClear forever. */
 export const SESSION_END_GRACE_MS = 2000;
-export const MAX_HOOK_BODY_SIZE = 65_536; // 64KB
+// pixel-agents-secure (H4): the hook script posts a filtered payload of a few
+// hundred bytes; 8KB leaves room and refuses an unfiltered script's file dumps.
+export const MAX_HOOK_BODY_SIZE = 8_192; // 8KB
 
 // ── Standalone Embedded Terminal ────────────────────────────
 /** PTY module ids tried in order by the loader. @lydell/node-pty ships prebuilt
