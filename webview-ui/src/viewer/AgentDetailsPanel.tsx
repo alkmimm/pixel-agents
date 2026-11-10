@@ -11,6 +11,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { CharacterMugShot } from '../components/CharacterMugShot.js';
+import { TERMINAL_SIDEBAR_WIDTH_PX } from '../constants.js';
 import { Button } from '../components/ui/Button.js';
 import { PixelIcon } from '../components/ui/PixelIcon.js';
 import type { SubagentCharacter } from '../hooks/useExtensionMessages.js';
@@ -162,10 +163,21 @@ interface Props {
   officeState: OfficeState;
   agentTools: Record<number, ToolActivity[]>;
   subagentCharacters: SubagentCharacter[];
+  /** The agent cards are a column over the office's right edge (desktop),
+   *  not a bar below it (narrow window). */
+  besideCards: boolean;
   onClose: () => void;
 }
 
-export function AgentDetailsPanel({ agentId, officeState, agentTools, subagentCharacters, onClose }: Props) {
+export function AgentDetailsPanel({
+  agentId,
+  officeState,
+  agentTools,
+  subagentCharacters,
+  besideCards,
+  onClose,
+}: Props) {
+  const rightGap = besideCards ? TERMINAL_SIDEBAR_WIDTH_PX + 8 : 8;
   const [tab, setTab] = useState<Tab>('activity');
   const activity = useAgentActivity(agentId);
   const offered = useConversationOffered();
@@ -195,8 +207,14 @@ export function AgentDetailsPanel({ agentId, officeState, agentTools, subagentCh
 
   return (
     <div
-      className="absolute right-8 top-8 bottom-8 pixel-panel flex flex-col gap-6 p-10 pointer-events-auto"
-      style={{ width: 'min(400px, calc(100% - 16px))', zIndex: 25 }}
+      className="absolute top-8 bottom-8 pixel-panel flex flex-col gap-6 p-10 pointer-events-auto"
+      // Left of the agent cards, which overlap the office's right edge
+      // (AgentCardBar's negative margin).
+      style={{
+        right: rightGap,
+        width: `min(400px, calc(100% - ${rightGap + 8}px))`,
+        zIndex: 25,
+      }}
       data-testid="agent-details"
       data-agent-id={agentId}
       onPointerDown={(e) => e.stopPropagation()}

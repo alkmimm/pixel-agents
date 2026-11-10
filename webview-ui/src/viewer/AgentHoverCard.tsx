@@ -8,6 +8,7 @@
  */
 import { useEffect, useState } from 'react';
 
+import { TERMINAL_SIDEBAR_WIDTH_PX } from '../constants.js';
 import type { SubagentCharacter } from '../hooks/useExtensionMessages.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 import { overlayProjection } from '../office/projection.js';
@@ -84,7 +85,8 @@ export function AgentHoverCard({
   const x = project.toScreenX(ch.x);
   const y = project.toScreenY(ch.y - 16);
   const halfWidth = project.toScreenX(ch.x + 8) - x;
-  const onRight = x + halfWidth + GAP + CARD_WIDTH < rect.width - 8;
+  // The agent cards overlap the office's right edge (AgentCardBar).
+  const onRight = x + halfWidth + GAP + CARD_WIDTH < rect.width - TERMINAL_SIDEBAR_WIDTH_PX - 8;
   const left = onRight ? x + halfWidth + GAP : Math.max(8, x - halfWidth - GAP - CARD_WIDTH);
   const top = Math.min(Math.max(8, y - 20), Math.max(8, rect.height - 240));
 

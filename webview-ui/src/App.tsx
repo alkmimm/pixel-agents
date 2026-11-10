@@ -722,7 +722,7 @@ function App() {
               containerRef={containerRef}
               zoom={editor.zoom}
               panRef={editor.panRef}
-              onCloseAgent={handleCloseAgent}
+              onCloseAgent={officeReadOnly ? undefined : handleCloseAgent}
               alwaysShowOverlay={alwaysShowOverlay}
             />
           </div>
@@ -747,6 +747,7 @@ function App() {
               officeState={officeState}
               agentTools={agentTools}
               subagentCharacters={subagentCharacters}
+              besideCards={!isMobile}
               onClose={closeDetails}
             />
           )}
@@ -792,7 +793,8 @@ function App() {
         </Tooltip>
       )}
 
-      {officeReadOnly && !isMobile && <ViewerBar prefs={viewerPrefs} onToggle={toggleViewerPref} />}
+      {/* Also in a narrow window: there is no other way to these controls. */}
+      {officeReadOnly && <ViewerBar prefs={viewerPrefs} onToggle={toggleViewerPref} />}
 
       {officeReadOnly && (
         <div className="absolute mobile-safe-top left-1/2 -translate-x-1/2 z-10 text-sm text-text-muted pointer-events-none select-none whitespace-nowrap">

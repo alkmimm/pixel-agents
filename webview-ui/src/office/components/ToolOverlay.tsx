@@ -44,7 +44,8 @@ interface ToolOverlayProps {
   containerRef: React.RefObject<HTMLDivElement | null>;
   zoom: number;
   panRef: React.RefObject<{ x: number; y: number }>;
-  onCloseAgent: (id: number) => void;
+  /** Absent in a read-only office (pixel-agents-secure): no × on the label. */
+  onCloseAgent?: (id: number) => void;
   alwaysShowOverlay: boolean;
 }
 
@@ -343,13 +344,13 @@ export function ToolOverlay({
                     </span>
                   )}
                 </div>
-                {isSelected && !isSub && (
+                {isSelected && !isSub && onCloseAgent && (
                   <Button
                     variant="ghost"
                     size="icon"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onCloseAgent(id);
+                      onCloseAgent?.(id);
                     }}
                     title="Close agent"
                     className="ml-2 shrink-0"
