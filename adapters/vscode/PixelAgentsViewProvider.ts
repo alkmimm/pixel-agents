@@ -96,6 +96,7 @@ import {
 } from './constants.js';
 import { workspaceDirectories } from './hostDirectories.js';
 import { VscodeTerminalAdapter } from './vscodeTerminalAdapter.js';
+import { withCsp } from './webviewCsp.js';
 
 /** Cap on the pending-broadcast queue. If we exceed this, something has gone
  *  wrong (webviewReady never arriving) — log and drop the oldest. */
@@ -470,7 +471,11 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
     // sendCurrentAgentStatuses + asset loaders).
     this.isWebviewReady = false;
     this.pendingBroadcasts = [];
-    webviewView.webview.options = { enableScripts: true };
+    webviewView.webview.options = {
+      enableScripts: true,
+      // pixel-agents-secure (H6): the webview may load only its own bundle.
+      localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview')],
+    };
     webviewView.webview.html = getWebviewContent(webviewView.webview, this.extensionUri);
 
     webviewView.webview.onDidReceiveMessage(async (message) => {
@@ -1206,5 +1211,6 @@ function getWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri): s
     return `${attr}="${webviewUri}"`;
   });
 
-  return html;
+  // pixel-agents-secure (H6): no webview without a Content-Security-Policy.
+  return withCsp(html, webview.cspSource);
 }

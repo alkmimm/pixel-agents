@@ -270,3 +270,44 @@ describe.skipIf(process.platform === 'win32')('H5: discovery files are owner-onl
     }
   });
 });
+
+describe('H6: the VS Code webview runs under a Content-Security-Policy', () => {
+  const SOURCE = 'https://file+.vscode-resource.vscode-cdn.net';
+
+  it('allows only the extension bundle, inline styles, data/blob images and a blob worker', async () => {
+    const { webviewCsp } = await import('../../adapters/vscode/webviewCsp.js');
+    const policy = webviewCsp(SOURCE);
+    const directives = Object.fromEntries(
+      policy.split(';').map((d) => {
+        const [name, ...values] = d.trim().split(/\s+/);
+        return [name, values];
+      }),
+    );
+    expect(directives['default-src']).toEqual(["'none'"]);
+    expect(directives['script-src']).toEqual([SOURCE]);
+    expect(directives['base-uri']).toEqual(["'none'"]);
+    expect(directives['form-action']).toEqual(["'none'"]);
+    expect(policy).not.toMatch(/unsafe-eval|\*/);
+    // No source other than the bundle's own origin may be a URL.
+    const urls = policy.match(/https?:\/\/[^\s;]+/g) ?? [];
+    expect(new Set(urls)).toEqual(new Set([SOURCE]));
+  });
+
+  it('puts the policy first in <head> and refuses HTML without one', async () => {
+    const { withCsp } = await import('../../adapters/vscode/webviewCsp.js');
+    const html = withCsp('<html><head><script src="x.js"></script></head></html>', SOURCE);
+    expect(html.indexOf('Content-Security-Policy')).toBeLessThan(html.indexOf('<script'));
+    expect(() => withCsp('<html><body></body></html>', SOURCE)).toThrow();
+  });
+
+  it('the provider applies the policy and restricts local resources to dist/webview', () => {
+    const provider = fs.readFileSync(
+      path.join(REPO_ROOT, 'adapters/vscode/PixelAgentsViewProvider.ts'),
+      'utf-8',
+    );
+    expect(provider).toContain('return withCsp(html, webview.cspSource);');
+    expect(provider).toMatch(
+      /localResourceRoots: \[vscode\.Uri\.joinPath\(this\.extensionUri, 'dist', 'webview'\)\]/,
+    );
+  });
+});
