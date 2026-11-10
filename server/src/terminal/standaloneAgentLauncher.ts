@@ -42,9 +42,6 @@ export interface LaunchStandaloneAgentOptions {
   /** Path of the Directory to launch into. Defaults to the server's cwd, which
    *  is also the Directory standalone contributes as its host entry. */
   directoryPath?: string;
-  /** Read from the host's persisted permission posture by the caller; never a
-   *  per-launch choice made in the office. */
-  bypassPermissions?: boolean;
   /** The character picked from the roster (a palette index). Out of range or
    *  absent, the Directory's default characters apply, else a random pick. */
   palette?: number;
@@ -75,7 +72,6 @@ export function launchStandaloneAgent(
   const sessionId = options.resume?.sessionId ?? crypto.randomUUID();
 
   const launch = provider.buildLaunchCommand?.(sessionId, cwd, {
-    bypassPermissions: options.bypassPermissions,
     resume: options.resume !== undefined,
   });
   if (!launch) {

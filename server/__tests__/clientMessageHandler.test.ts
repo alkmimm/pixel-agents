@@ -1043,71 +1043,37 @@ describe('clientMessageHandler: standalone terminal control plane', () => {
     expect(broadcasts).toHaveLength(0);
   });
 
-  it('launchAgent applies the persisted permission posture, not a per-launch field', () => {
+  // pixel-agents-secure (H1): Skip Permissions does not exist in this build.
+  it('launchAgent never adds the skip-permissions flag, even under a stale persisted posture', () => {
     const { manager, spawnArgs } = workingPtyManager();
+    // A config.json written by the upstream extension may still say "on".
+    store.getAdapter()!.setSetting('pixel-agents.bypassPermissions', true);
 
-    // Posture off: no flag, and a stale client field cannot turn it on — the
-    // launch message carries no bypass field any more.
     dispatch(
       { type: 'launchAgent', bypassPermissions: true },
       ctx({ runtime, ptyManager: manager }),
     );
     expect(spawnArgs[0]).not.toContain('--dangerously-skip-permissions');
-
-    // Posture on: every launch gets the flag without the client saying so.
-    dispatch({ type: 'setBypassPermissions', enabled: true }, ctx());
-    dispatch({ type: 'launchAgent' }, ctx({ runtime, ptyManager: manager }));
-    expect(spawnArgs[1]).toContain('--dangerously-skip-permissions');
   });
 
-  it('setBypassPermissions persists via the adapter (standalone namespace)', () => {
+  it('refuses setBypassPermissions: nothing persisted, nothing broadcast, the sender is told off', () => {
     dispatch({ type: 'setBypassPermissions', enabled: true }, ctx());
-    const adapter = store.getAdapter()!;
-    expect(adapter.getSetting('pixel-agents.bypassPermissions', false)).toBe(true);
-
-    dispatch({ type: 'setBypassPermissions', enabled: false }, ctx());
-    expect(adapter.getSetting('pixel-agents.bypassPermissions', true)).toBe(false);
-  });
-
-  it('setBypassPermissions publishes the accepted posture to every connected office', () => {
-    // Every launch reads the persisted posture, so an office still showing the
-    // old value would be launching with a flag its Settings says is off.
-    dispatch({ type: 'setBypassPermissions', enabled: true }, ctx());
-    expect(broadcasts).toContainEqual({ type: 'bypassPermissionsUpdated', enabled: true });
-
-    broadcasts = [];
-    dispatch({ type: 'setBypassPermissions', enabled: false }, ctx());
-    expect(broadcasts).toContainEqual({ type: 'bypassPermissionsUpdated', enabled: false });
-  });
-
-  it('refuses setBypassPermissions from an unprivileged client and tells it the truth', () => {
-    // The escalation this pins: an untokened viewer (LAN, DNS-rebound page)
-    // flips the posture, and the operator's NEXT launch from a tokened tab runs
-    // with --dangerously-skip-permissions.
-    const { manager, spawnArgs } = workingPtyManager();
-    const runtime = new AgentRuntime(store, claudeProvider);
-
-    dispatch({ type: 'setBypassPermissions', enabled: true }, ctx({ privileged: false }));
 
     expect(store.getAdapter()!.getSetting('pixel-agents.bypassPermissions', false)).toBe(false);
-    // Nothing changed, so nothing is published to the other offices.
     expect(broadcasts.filter((m) => m.type === 'bypassPermissionsUpdated')).toEqual([]);
-    // The optimistic toggle snaps back: the refused client gets the real value.
     expect(sent).toContainEqual(
       expect.objectContaining({ type: 'settingsLoaded', bypassPermissions: false }),
     );
-    dispatch({ type: 'launchAgent' }, ctx({ runtime, ptyManager: manager }));
-    expect(spawnArgs[0]).not.toContain('--dangerously-skip-permissions');
   });
 
-  it('webviewReady reports the persisted permission posture in settingsLoaded', () => {
-    dispatch({ type: 'setBypassPermissions', enabled: true }, ctx());
+  it('webviewReady always reports bypassPermissions false', () => {
+    store.getAdapter()!.setSetting('pixel-agents.bypassPermissions', true);
     sent = [];
 
     dispatch({ type: 'webviewReady' }, ctx());
 
     const settings = sent.find((m) => m.type === 'settingsLoaded');
-    expect(settings?.bypassPermissions).toBe(true);
+    expect(settings?.bypassPermissions).toBe(false);
   });
 
   // ── webviewReady: the host's own Directory ───────────────────

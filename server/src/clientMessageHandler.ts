@@ -106,7 +106,6 @@ const KEY_GHOST_HEADLESS_AGENTS = 'pixel-agents.ghostHeadlessAgents';
 const KEY_WATCH_ALL_SESSIONS = 'pixel-agents.watchAllSessions';
 const KEY_HOOKS_INFO_SHOWN = 'pixel-agents.hooksInfoShown';
 const KEY_SHOW_AREAS = 'pixel-agents.showAreas';
-const KEY_BYPASS_PERMISSIONS = 'pixel-agents.bypassPermissions';
 const KEY_SHOW_HOST_DIRECTORIES = 'pixel-agents.showHostDirectories';
 
 /** The provider whose conversations the sidebar lists and resumes: the first
@@ -179,16 +178,14 @@ export function handleClientMessage(
       // the browser drawer (a shell running as the operator -- privileged, like
       // every message past the read-only gate above).
       if (!runtime || !ctx.ptyManager) break;
-      // Permission posture is a persisted per-host setting, never a per-launch
-      // field: the client sends only where to launch. Every launch comes from a
-      // drawer row and carries its Directory's path; no directoryPath falls
-      // back to the server cwd (launchStandaloneAgent's own default).
+      // Every launch comes from a drawer row and carries its Directory's path;
+      // no directoryPath falls back to the server cwd (launchStandaloneAgent's
+      // own default). pixel-agents-secure (H1): no permission posture exists.
       const picked = rosterPick(msg.palette, getPaletteCount());
       const launched = launchStandaloneAgent(
         { store, runtime, ptyManager: ctx.ptyManager, provider: claudeProvider },
         {
           directoryPath: msg.directoryPath as string | undefined,
-          bypassPermissions: adapter?.getSetting(KEY_BYPASS_PERMISSIONS, false) ?? false,
           palette: picked,
         },
       );
@@ -239,7 +236,6 @@ export function handleClientMessage(
         { store, runtime, ptyManager: ctx.ptyManager, provider: conversationProvider },
         {
           directoryPath: resume.directoryPath,
-          bypassPermissions: adapter?.getSetting(KEY_BYPASS_PERMISSIONS, false) ?? false,
           palette: resume.look?.palette,
           resume: {
             sessionId: resume.sessionId,
@@ -450,18 +446,11 @@ export function handleClientMessage(
       break;
     }
 
-    case 'setBypassPermissions': {
-      if (typeof msg.enabled !== 'boolean' || !adapter) break;
-      adapter.setSetting(KEY_BYPASS_PERMISSIONS, msg.enabled);
-      // Every launch reads the persisted posture, so every office must show it:
-      // a second tab still reading "off" would launch with the flag regardless.
-      // Published as read back, so a failed write shows the truth, not the ask.
-      store.broadcast({
-        type: 'bypassPermissionsUpdated',
-        enabled: adapter.getSetting(KEY_BYPASS_PERMISSIONS, false),
-      });
+    case 'setBypassPermissions':
+      // pixel-agents-secure (H1): Skip Permissions does not exist in this
+      // build. Nothing is persisted; the sender is told the only truth.
+      send(settingsSnapshot(adapter));
       break;
-    }
 
     case 'setShowHostDirectories': {
       if (typeof msg.enabled !== 'boolean' || !adapter) break;
@@ -796,7 +785,8 @@ function settingsSnapshot(adapter: StateAdapter | undefined) {
     hooksInfoShown: adapter?.getSetting(KEY_HOOKS_INFO_SHOWN, false) ?? false,
     externalAssetDirectories: readConfig().externalAssetDirectories,
     showAreas: adapter?.getSetting(KEY_SHOW_AREAS, false) ?? false,
-    bypassPermissions: adapter?.getSetting(KEY_BYPASS_PERMISSIONS, false) ?? false,
+    // pixel-agents-secure (H1): always off; the field stays for the protocol.
+    bypassPermissions: false,
     showHostDirectories: adapter?.getSetting(KEY_SHOW_HOST_DIRECTORIES, false) ?? false,
   } as const;
 }

@@ -85,7 +85,6 @@ import {
   CONFIG_KEY_AUTO_SHOW_PANEL,
   CONFIG_KEY_AUTO_SPAWN_AGENT,
   GLOBAL_KEY_ALWAYS_SHOW_LABELS,
-  GLOBAL_KEY_BYPASS_PERMISSIONS,
   GLOBAL_KEY_GHOST_HEADLESS_AGENTS,
   GLOBAL_KEY_HOOKS_INFO_SHOWN,
   GLOBAL_KEY_LAST_SEEN_VERSION,
@@ -496,13 +495,7 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
             // path; no directoryPath leaves launchNewTerminal's own fallback —
             // the first workspace folder — exactly as it was.
             directoryPath: message.directoryPath as string | undefined,
-            // Permission posture is a persisted per-host setting, never a
-            // per-launch field: the webview sends only where to launch (and,
-            // picked from the roster, which character).
-            bypassPermissions: this.adapter.getSetting<boolean>(
-              GLOBAL_KEY_BYPASS_PERMISSIONS,
-              false,
-            ),
+            // pixel-agents-secure (H1): no permission posture exists.
             palette: picked,
           },
         );
@@ -622,16 +615,9 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           this.sendDirectories();
         }
       } else if (message.type === 'setBypassPermissions') {
-        if (typeof message.enabled === 'boolean') {
-          this.adapter.setSetting(GLOBAL_KEY_BYPASS_PERMISSIONS, message.enabled);
-          // Through the store, not straight to the webview: the store's
-          // broadcast also reaches offices on the embedded server's /ws, which
-          // launch under this same posture.
-          this.store.broadcast({
-            type: 'bypassPermissionsUpdated',
-            enabled: this.adapter.getSetting<boolean>(GLOBAL_KEY_BYPASS_PERMISSIONS, false),
-          });
-        }
+        // pixel-agents-secure (H1): Skip Permissions does not exist in this
+        // build. Nothing is persisted; every office is told it is off.
+        this.store.broadcast({ type: 'bypassPermissionsUpdated', enabled: false });
       } else if (message.type === 'saveAreaMappings') {
         const mappings = message.mappings as Record<string, string[]>;
         const cfg = readConfig();
@@ -720,10 +706,6 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         const hooksEnabled = getHooksEnabled(claudeProvider.id);
         const hooksInfoShown = this.adapter.getSetting<boolean>(GLOBAL_KEY_HOOKS_INFO_SHOWN, false);
         const showAreas = this.adapter.getSetting<boolean>(GLOBAL_KEY_SHOW_AREAS, false);
-        const bypassPermissions = this.adapter.getSetting<boolean>(
-          GLOBAL_KEY_BYPASS_PERMISSIONS,
-          false,
-        );
         const showHostDirectories = this.adapter.getSetting<boolean>(
           GLOBAL_KEY_SHOW_HOST_DIRECTORIES,
           false,
@@ -741,7 +723,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           hooksInfoShown,
           externalAssetDirectories: config.externalAssetDirectories,
           showAreas,
-          bypassPermissions,
+          // pixel-agents-secure (H1): always off; the field stays for the protocol.
+          bypassPermissions: false,
           showHostDirectories,
         });
 
@@ -838,10 +821,8 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
             this.runtime.jsonlPollTimers,
             this.runtime.projectScanTimer,
             () => this.store.persist(),
-            // No directoryPath: the workspace fallback. Auto-spawn is a launch
-            // like any other, so it runs under the same persisted permission
-            // posture.
-            { bypassPermissions, suppressShow: autoShowPanel },
+            // No directoryPath: the workspace fallback.
+            { suppressShow: autoShowPanel },
           );
           for (const [id, agent] of this.store) {
             if (!prevAgentIds.has(id)) {

@@ -26,3 +26,40 @@ describe('H0: own extension identity', () => {
     expect(`${rootPackage.publisher}.${rootPackage.name}`).not.toBe('pablodelucca.pixel-agents');
   });
 });
+
+/** Every source file under the shipped trees (tests excluded). */
+function sourceFiles(): string[] {
+  const roots = ['adapters', 'core/src', 'server/src', 'webview-ui/src'];
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.(ts|tsx|js|mjs|cjs|html)$/.test(entry.name)) out.push(full);
+    }
+  };
+  for (const root of roots) walk(path.join(REPO_ROOT, root));
+  return out;
+}
+
+describe('H1: no Skip Permissions', () => {
+  it('the launch command never carries the skip-permissions flag', async () => {
+    const { claudeProvider } = await import('../src/providers/hook/claude/claude.js');
+    for (const opts of [undefined, {}, { resume: true }, { bypassPermissions: true }]) {
+      const launch = claudeProvider.buildLaunchCommand!(
+        '00000000-0000-4000-8000-000000000000',
+        '/tmp',
+        opts as { resume?: boolean },
+      );
+      expect(launch.args.join(' ')).not.toMatch(/dangerously|skip-permissions/);
+    }
+  });
+
+  it('no shipped source file contains the flag or the toggle', () => {
+    const offenders = sourceFiles().filter((file) => {
+      const text = fs.readFileSync(file, 'utf-8');
+      return /dangerously-skip-permissions|>\s*Skip Permissions\s*</.test(text);
+    });
+    expect(offenders.map((f) => path.relative(REPO_ROOT, f))).toEqual([]);
+  });
+});

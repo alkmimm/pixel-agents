@@ -10,7 +10,6 @@ import { Button } from './ui/Button.js';
 import { Checkbox } from './ui/Checkbox.js';
 import { MenuItem } from './ui/MenuItem.js';
 import { Modal } from './ui/Modal.js';
-import { PixelIcon } from './ui/PixelIcon.js';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -36,9 +35,6 @@ interface SettingsModalProps {
   onToggleShowAreas: () => void;
   /** Hide the Show Areas checkbox entirely when areas are unavailable. */
   showAreasAvailable: boolean;
-  /** Permission posture applied by the host to every launch from this office. */
-  bypassPermissions: boolean;
-  onToggleBypassPermissions: () => void;
   /** Whether the launch drawer lists the host's own Directories. */
   showHostDirectories: boolean;
   onToggleShowHostDirectories: () => void;
@@ -65,8 +61,6 @@ export function SettingsModal({
   showAreas,
   onToggleShowAreas,
   showAreasAvailable,
-  bypassPermissions,
-  onToggleBypassPermissions,
   showHostDirectories,
   onToggleShowHostDirectories,
   onExportLayout,
@@ -253,18 +247,7 @@ export function SettingsModal({
         {showAreasAvailable && (
           <Checkbox label="Show Areas" checked={showAreas} onChange={onToggleShowAreas} />
         )}
-        {/* Permission posture, set once instead of per launch: while on, the host
-          adds the CLI's skip-permissions flag to every agent it launches. */}
-        <Checkbox
-          label={
-            <span className="flex items-center gap-4">
-              Skip Permissions
-              <PixelIcon name="warning" />
-            </span>
-          }
-          checked={bypassPermissions}
-          onChange={onToggleBypassPermissions}
-        />
+        {/* pixel-agents-secure (H1): no Skip Permissions toggle in this build. */}
         {/* The host's own Directories in the launch drawer, named for what each
           host contributes: VS Code its workspace folders, standalone the
           directory the server was started from. */}

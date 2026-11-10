@@ -125,11 +125,12 @@ function sessionDirOf(workspacePath: string): string {
 function buildLaunchCommand(
   sessionId: string,
   cwd: string,
-  opts?: { bypassPermissions?: boolean; resume?: boolean },
+  opts?: { resume?: boolean },
 ): { command: string; args: string[]; env?: Record<string, string> } {
   // A resumed session keeps its id and appends to its old transcript.
+  // pixel-agents-secure (H1): no permission posture exists; Claude Code always
+  // runs with its own permission prompts.
   const args = [opts?.resume ? '--resume' : '--session-id', sessionId];
-  if (opts?.bypassPermissions) args.push('--dangerously-skip-permissions');
   return { command: 'claude', args, env: { PWD: cwd } };
 }
 

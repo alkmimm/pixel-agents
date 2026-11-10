@@ -242,12 +242,13 @@ describe('launchStandaloneAgent', () => {
     expect(palette).not.toBe(999);
   });
 
-  it('passes bypassPermissions through to the launch command', () => {
+  // pixel-agents-secure (H1): Skip Permissions does not exist in this build.
+  it('never adds the skip-permissions flag to the launch command', () => {
     const harness = workingPtyManager();
 
-    launch(harness, { bypassPermissions: true });
+    launch(harness, {});
 
-    expect(harness.spawnArgs[0].args).toContain('--dangerously-skip-permissions');
+    expect(harness.spawnArgs[0].args).not.toContain('--dangerously-skip-permissions');
   });
 
   // ── Refusal paths (each must leave the store and id counter untouched) ──

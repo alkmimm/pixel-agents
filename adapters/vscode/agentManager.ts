@@ -48,8 +48,6 @@ export function getProjectDirPath(cwd?: string): string {
 export interface LaunchTerminalOptions {
   /** The Directory to launch into; absent = the first workspace folder, else home. */
   directoryPath?: string;
-  /** The host's persisted permission posture (never a per-launch choice). */
-  bypassPermissions?: boolean;
   /** Keep the panel on Pixel Agents instead of showing the terminal. */
   suppressShow?: boolean;
   /** The character picked from the roster (a palette index); absent = the
@@ -70,7 +68,7 @@ export async function launchNewTerminal(
   jsonlPollTimers: Map<number, ReturnType<typeof setInterval>>,
   projectScanTimerRef: { current: ReturnType<typeof setInterval> | null },
   persistAgents: () => void,
-  { directoryPath, bypassPermissions, suppressShow, palette }: LaunchTerminalOptions = {},
+  { directoryPath, suppressShow, palette }: LaunchTerminalOptions = {},
 ): Promise<void> {
   const folders = vscode.workspace.workspaceFolders;
   // Use home directory as fallback cwd when no workspace is open (common on Linux/macOS).
@@ -96,7 +94,7 @@ export async function launchNewTerminal(
   }
 
   const sessionId = crypto.randomUUID();
-  const launch = claudeProvider.buildLaunchCommand?.(sessionId, cwd, { bypassPermissions });
+  const launch = claudeProvider.buildLaunchCommand?.(sessionId, cwd);
   if (!launch) {
     throw new Error('claudeProvider.buildLaunchCommand is not implemented');
   }

@@ -23,7 +23,6 @@ import {
   openLaunchDrawer,
   setSettings,
   SHOW_START_DIRECTORY_LABEL,
-  SKIP_PERMISSIONS_LABEL,
   submitDirectoryModal,
 } from '../../helpers/webview';
 
@@ -338,67 +337,8 @@ test.describe('Standalone / host Directory setting', () => {
   });
 });
 
-test.describe('Standalone / permission posture', () => {
-  test('the skip-permissions setting lands on disk and survives a reload @area:standalone', async ({
-    page,
-    standalone,
-  }) => {
-    // Off by default, and nothing in the launch flow offers it any more — the
-    // hover gesture belongs to the Directory drawer now.
-    expect(await getSettingChecked(page, SKIP_PERMISSIONS_LABEL)).toBe(false);
-    await expect(page.getByText('Skip permissions mode')).toHaveCount(0);
-
-    await setSettings(page, { bypassPermissions: true });
-
-    // It is the host's persisted posture, in its own namespace.
-    const configPath = path.join(standalone.tmpHome, '.pixel-agents', 'config.json');
-    await expect
-      .poll(
-        () => {
-          try {
-            const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
-              standalone?: { bypassPermissions?: boolean };
-            };
-            return cfg.standalone?.bypassPermissions ?? false;
-          } catch {
-            return false;
-          }
-        },
-        { timeout: 10_000 },
-      )
-      .toBe(true);
-
-    // Reload: the toggle comes back from that persisted config, not from
-    // anything the page kept in memory.
-    await page.reload();
-    await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible({
-      timeout: 30_000,
-    });
-    expect(await getSettingChecked(page, SKIP_PERMISSIONS_LABEL)).toBe(true);
-  });
-
-  test('turning skip-permissions on in one office shows it on in another already open @area:standalone', async ({
-    page,
-    standalone: _standalone,
-  }) => {
-    // A second tokened office, open BEFORE the change: it loaded "off" and
-    // must not keep showing that while every launch now skips permissions.
-    const other = await page.context().newPage();
-    await other.goto(page.url());
-    await expect(other.getByRole('button', { name: 'Settings', exact: true })).toBeVisible({
-      timeout: 30_000,
-    });
-    expect(await getSettingChecked(other, SKIP_PERMISSIONS_LABEL)).toBe(false);
-
-    await setSettings(page, { bypassPermissions: true });
-
-    // No reload: the change has to reach the open office by itself.
-    await expect
-      .poll(() => getSettingChecked(other, SKIP_PERMISSIONS_LABEL), { timeout: 10_000 })
-      .toBe(true);
-    await other.close();
-  });
-});
+// pixel-agents-secure (H1): the permission-posture specs are gone with the
+// Skip Permissions toggle (hardening.test.ts pins its absence).
 
 /**
  * A long Directory list must not push the drawer off the screen: the drawer is
