@@ -181,39 +181,57 @@ async function openPictureInPicture(controller: PipController, root: HTMLElement
   );
 }
 
-/** Add the button, when this browser can do it. Safe to call more than once. */
-export function installPictureInPictureButton(): void {
-  const controller = pipController();
-  const root = document.getElementById('root');
-  if (!controller || !root || document.getElementById(BUTTON_ID)) return;
+const BUTTON_STYLE = [
+  'padding:4px 10px',
+  'font:inherit',
+  'cursor:pointer',
+  'color:var(--pixel-text, inherit)',
+  'background:var(--pixel-bg, transparent)',
+  'border:2px solid var(--pixel-border, currentColor)',
+  'box-shadow:var(--pixel-shadow, none)',
+  'border-radius:0',
+].join(';');
 
+function makeButton(label: string, title: string, onClick: () => void): HTMLButtonElement {
   const button = document.createElement('button');
-  button.id = BUTTON_ID;
   button.type = 'button';
-  button.textContent = 'PiP';
-  button.title = 'Abrir o escritório numa janela flutuante, sempre por cima';
-  button.style.cssText = [
-    'position:fixed',
-    // Bottom-left: the right edge is the agent cards' column, the top-left
-    // the zoom buttons, the bottom-right the music player. A read-only office
-    // has no toolbar there.
-    'bottom:8px',
-    'left:8px',
-    'z-index:2147483000',
-    'padding:4px 10px',
-    'font:inherit',
-    'cursor:pointer',
-    'color:var(--pixel-text, inherit)',
-    'background:var(--pixel-bg, transparent)',
-    'border:2px solid var(--pixel-border, currentColor)',
-    'box-shadow:var(--pixel-shadow, none)',
-    'border-radius:0',
-  ].join(';');
-  button.addEventListener('click', () => {
-    void openPictureInPicture(controller, root).catch((err: unknown) => {
-      console.error('[Pixel Agents] picture-in-picture failed:', err);
-    });
-  });
+  button.textContent = label;
+  button.title = title;
+  button.style.cssText = BUTTON_STYLE;
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+/**
+ * Add the viewer's own buttons: "Enquadrar" (fit and centre the office) always,
+ * "PiP" when this browser can do it. Safe to call more than once.
+ */
+export function installPictureInPictureButton(): void {
+  const root = document.getElementById('root');
+  if (!root || document.getElementById(BUTTON_ID)) return;
+
+  const bar = document.createElement('div');
+  bar.id = BUTTON_ID;
+  // Bottom-left: the right edge is the agent cards' column, the top-left the
+  // zoom buttons, the bottom-right the music player. A read-only office has no
+  // toolbar there.
+  bar.style.cssText =
+    'position:fixed;bottom:8px;left:8px;z-index:2147483000;display:flex;gap:6px';
+  bar.appendChild(
+    makeButton('Enquadrar', 'Ajustar o zoom e centralizar o escritório inteiro', () =>
+      fitOffice(root),
+    ),
+  );
+  const controller = pipController();
+  if (controller) {
+    bar.appendChild(
+      makeButton('PiP', 'Abrir o escritório numa janela flutuante, sempre por cima', () => {
+        void openPictureInPicture(controller, root).catch((err: unknown) => {
+          console.error('[Pixel Agents] picture-in-picture failed:', err);
+        });
+      }),
+    );
+  }
   // On the page, not inside #root: it must stay behind when the app moves out.
-  document.body.appendChild(button);
+  document.body.appendChild(bar);
 }
