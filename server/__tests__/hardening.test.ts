@@ -363,3 +363,87 @@ describe('H7: no CORS and a loopback-only Host on every request', () => {
     }
   });
 });
+
+describe('H4 (server side): the hook route filters too', () => {
+  it('never hands the runtime an unfiltered payload, whatever script posted it', async () => {
+    const { createHttpServer } = await import('../src/httpServer.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const { MAX_HOOK_BODY_SIZE } = await import('../src/constants.js');
+    expect(MAX_HOOK_BODY_SIZE).toBeLessThanOrEqual(8_192);
+    const seen: Array<{ providerId: string; event: Record<string, unknown> }> = [];
+    const { app, port } = await createHttpServer({
+      embedded: true,
+      token: 't',
+      store: new AgentStateStore(),
+      onHookEvent: (providerId, event) => seen.push({ providerId, event }),
+    });
+    const post = (providerId: string, body: unknown) =>
+      fetch(`http://127.0.0.1:${port}/api/hooks/${providerId}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer t' },
+        body: JSON.stringify(body),
+      });
+    try {
+      const raw = {
+        session_id: 's1',
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Write',
+        tool_input: { file_path: '/home/u/x.md', content: 'TOP SECRET' },
+        tool_response: 'TOP SECRET',
+      };
+      expect((await post('claude', raw)).status).toBe(200);
+      expect(seen).toHaveLength(1);
+      expect(JSON.stringify(seen[0].event)).not.toContain('TOP SECRET');
+      expect(seen[0].event.tool_input).toEqual({ file_path: 'x.md' });
+      // A provider with no filter gets nothing through.
+      await post('unknown-provider', raw);
+      expect(seen).toHaveLength(1);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe('H8: the usage bridge can be removed but never installed', () => {
+  it('refuses to enable it without touching the bridge', async () => {
+    const { applyUsageBridgeChoice, USAGE_BRIDGE_DISABLED_MESSAGE } =
+      await import('../src/usageLimits.js');
+    const { claudeProvider } = await import('../src/providers/hook/claude/claude.js');
+    let installs = 0;
+    const provider = {
+      ...claudeProvider,
+      usageBridge: {
+        ...claudeProvider.usageBridge!,
+        install: async () => {
+          installs++;
+        },
+      },
+    };
+    const status = await applyUsageBridgeChoice(provider, '/some/package/root', true);
+    expect(installs).toBe(0);
+    expect(status.error).toBe(USAGE_BRIDGE_DISABLED_MESSAGE);
+  });
+});
+
+describe('H9: the hook script takes its debug log from its own environment only', () => {
+  it('never adopts a path read from a registry entry', () => {
+    const script = fs.readFileSync(
+      path.join(REPO_ROOT, 'server/src/providers/hook/claude/hooks/claude-hook.ts'),
+      'utf-8',
+    );
+    expect(script).not.toMatch(/\.debugLog/);
+    expect(script).toContain("const debugLogPath = process.env['PIXEL_AGENTS_DEBUG_LOG'];");
+  });
+});
+
+describe('H10: the package build runs only what the package needs', () => {
+  it('vscode:prepublish skips code generation and lint', () => {
+    const scripts = (
+      JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf-8')) as {
+        scripts: Record<string, string>;
+      }
+    ).scripts;
+    expect(scripts['vscode:prepublish']).toBe('npm run package:secure');
+    expect(scripts['package:secure']).not.toMatch(/asyncapi|lint|generate/);
+  });
+});
