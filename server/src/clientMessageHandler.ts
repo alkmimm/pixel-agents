@@ -47,6 +47,7 @@ import { recentCharactersMessage, recordCharacterUse } from './recentCharacters.
 import { launchStandaloneAgent } from './terminal/standaloneAgentLauncher.js';
 import type { TerminalSessions } from './terminal/terminalSessions.js';
 import { applyUsageBridgeChoice, usageSnapshotMessages } from './usageLimits.js';
+import { answerConversationRequest } from './viewerConversation.js';
 
 type WsSend = (message: Record<string, unknown>) => void;
 
@@ -100,6 +101,10 @@ export interface ClientMessageContext {
   /** pixel-agents-secure (local): the viewer's activity history, sent on
    *  connect. Absent outside the viewer. */
   activity?: ActivityLog;
+  /** pixel-agents-secure (H17): the viewer answers requestAgentConversation.
+   *  Only a read-only (viewer) server sets it, and only when its operator
+   *  turned it on. */
+  conversation?: boolean;
 }
 
 // ── Setting key constants (mirror adapters/vscode/constants.ts) ──
@@ -167,6 +172,13 @@ export function handleClientMessage(
   // Tokenless is read-only. Refused HERE, once, rather than per message, so a
   // message type added later is privileged by default instead of open until
   // someone remembers to gate it.
+  // pixel-agents-secure (H17): the one other message a read-only client may
+  // send. It changes nothing, and is answered "disabled" unless the viewer's
+  // operator turned the conversation view on.
+  if (msg.type === 'requestAgentConversation') {
+    void answerConversationRequest(msg, send, store, ctx.conversation === true);
+    return;
+  }
   if (!ctx.privileged && msg.type !== 'webviewReady') {
     refuseReadOnly(msg, send, ctx);
     return;
@@ -760,6 +772,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     send({
       type: 'agentActivityHistory',
       agents: ctx.activity.snapshot(),
+      conversation: ctx.conversation === true,
     });
   }
 

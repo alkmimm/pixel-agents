@@ -43,6 +43,14 @@ export class ViewerArgsError extends Error {}
 
 const WATCH_ALL_SESSIONS_KEY = 'pixel-agents.watchAllSessions';
 
+/** pixel-agents-secure (H17): the conversation view is on only when the
+ *  service is started with exactly this value (scripts/office.sh conversa on). */
+export const CONVERSATION_ENV = 'PIXEL_AGENTS_VIEWER_CONVERSATION';
+
+export function conversationEnabled(env: NodeJS.ProcessEnv): boolean {
+  return env[CONVERSATION_ENV] === '1';
+}
+
 /**
  * The viewer's settings. It has no workspace of its own, so it ALWAYS watches
  * every session; and it is read-only, so it never writes a setting.
@@ -110,6 +118,7 @@ async function main(): Promise<void> {
 
   // Before the runtime and the server: it must see every broadcast.
   const activity = new ActivityLog(store);
+  const conversation = conversationEnabled(process.env);
 
   const runtime = new AgentRuntime(store, claudeProvider);
   const server = new PixelAgentsServer();
@@ -121,6 +130,7 @@ async function main(): Promise<void> {
     embedded: false,
     readOnly: true,
     activity,
+    conversation,
     port: args.port,
     staticDir: path.join(distRoot, 'webview'),
     assetCache,
@@ -143,7 +153,8 @@ async function main(): Promise<void> {
 
   console.log(
     `[Pixel Agents viewer] read-only office on http://${LOOPBACK_BIND_HOST}:${config.port} ` +
-      `(hooks ${runtime.hooksEnabled.current ? 'installed by the extension: live events' : 'not installed: transcripts only'})`,
+      `(hooks ${runtime.hooksEnabled.current ? 'installed by the extension: live events' : 'not installed: transcripts only'}; ` +
+      `conversation view ${conversation ? 'ON' : 'off'})`,
   );
 
   let shuttingDown = false;

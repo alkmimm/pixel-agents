@@ -4,12 +4,15 @@
  * - agentActivityHistory / agentActivity: each agent's recent activity, as the
  *   server's ActivityLog records it (server/src/activityLog.ts) -- only the
  *   labels the office already shows.
+ * - requestAgentConversation / agentConversation (H17): an agent's prompts and
+ *   replies as text, answered only when the viewer's operator turned it on.
  *
  * Kept out of the generated protocol (core/asyncapi.yaml): it is this fork's
  * viewer-only extension, and a regenerated upstream contract must not drop it.
  */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
+import type { ClientMessage } from '../../../core/src/messages.js';
 import { transport } from '../transport/index.js';
 
 export type ActivityKind = 'joined' | 'turn' | 'tool' | 'subtool' | 'permission' | 'done' | 'input';
@@ -26,11 +29,26 @@ export interface AgentActivity {
   entries: ActivityEntry[];
 }
 
+export interface ConversationEntry {
+  t?: number;
+  role: 'user' | 'assistant' | 'tool';
+  text: string;
+}
+
+export interface AgentConversation {
+  enabled: boolean;
+  entries: ConversationEntry[];
+  truncated: boolean;
+  unreadable?: boolean;
+  receivedAt: number;
+}
+
 const MAX_ENTRIES = 300;
 
 // ── Store ──────────────────────────────────────────────────────
 
 let activities = new Map<number, AgentActivity>();
+let conversationOffered = false;
 let version = 0;
 const listeners = new Set<() => void>();
 let subscribed = false;
@@ -58,6 +76,7 @@ function onServerMessage(raw: unknown): void {
         });
       }
       activities = next;
+      conversationOffered = msg.conversation === true;
       changed();
       return;
     }
@@ -106,6 +125,12 @@ export function useAgentActivity(id: number | null): AgentActivity | undefined {
   return id === null ? undefined : activities.get(id);
 }
 
+/** Whether this server offers the conversation view at all (H17). */
+export function useConversationOffered(): boolean {
+  useSyncExternalStore(subscribe, () => version);
+  return conversationOffered;
+}
+
 /** Ticks every `ms` so "há 3 min" stays true. */
 export function useNow(ms = 15_000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -114,6 +139,40 @@ export function useNow(ms = 15_000): number {
     return () => clearInterval(timer);
   }, [ms]);
   return now;
+}
+
+// ── Conversation (H17) ─────────────────────────────────────────
+
+const CONVERSATION_POLL_MS = 4_000;
+
+/** The agent's conversation while `active`, asked again every few seconds.
+ *  Nothing is asked while the tab is closed. */
+export function useAgentConversation(id: number | null, active: boolean): AgentConversation | null {
+  const [conversation, setConversation] = useState<AgentConversation | null>(null);
+  useEffect(() => {
+    setConversation(null);
+    if (id === null || !active) return;
+    const unsubscribe = transport.onMessage((raw) => {
+      const msg = raw as unknown as Record<string, unknown>;
+      if (msg.type !== 'agentConversation' || msg.id !== id) return;
+      setConversation({
+        enabled: msg.enabled === true,
+        entries: Array.isArray(msg.entries) ? (msg.entries as ConversationEntry[]) : [],
+        truncated: msg.truncated === true,
+        unreadable: msg.unreadable === true,
+        receivedAt: Date.now(),
+      });
+    });
+    const ask = () =>
+      transport.send({ type: 'requestAgentConversation', id } as unknown as ClientMessage);
+    ask();
+    const timer = setInterval(ask, CONVERSATION_POLL_MS);
+    return () => {
+      clearInterval(timer);
+      unsubscribe();
+    };
+  }, [id, active]);
+  return conversation;
 }
 
 // ── Formatting ─────────────────────────────────────────────────

@@ -72,6 +72,8 @@ export class PixelAgentsServer {
     readOnly?: boolean;
     /** pixel-agents-secure (local): the viewer's activity history. */
     activity?: ActivityLog;
+    /** pixel-agents-secure (H17): the viewer's conversation view (readOnly only). */
+    conversation?: boolean;
     host?: string;
     port?: number;
     staticDir?: string;
@@ -143,6 +145,7 @@ export class PixelAgentsServer {
       embedded,
       readOnly: options?.readOnly ?? false,
       activity: options?.activity,
+      conversation: options?.readOnly === true && options?.conversation === true,
       viewerSessionsFile: options?.readOnly
         ? path.join(os.homedir(), SERVER_JSON_DIR, 'viewer-sessions.json')
         : undefined,

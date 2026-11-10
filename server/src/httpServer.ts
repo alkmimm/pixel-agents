@@ -58,6 +58,9 @@ export interface HttpServerOptions {
   viewerSessionsFile?: string;
   /** pixel-agents-secure (local): the viewer's activity history. */
   activity?: ActivityLog;
+  /** pixel-agents-secure (H17): answer requestAgentConversation. Honoured only
+   *  together with readOnly (the viewer). */
+  conversation?: boolean;
   /** Host to bind to. Default: '127.0.0.1' */
   host?: string;
   /** Port to listen on. Default: 0 (auto-assign) */
@@ -372,6 +375,7 @@ function registerWebSocketRoute(
           privileged,
           ptyManager: options.ptyManager,
           activity: options.activity,
+          conversation: options.readOnly === true && options.conversation === true,
         });
       } catch {
         // Malformed JSON, ignore

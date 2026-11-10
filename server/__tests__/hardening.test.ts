@@ -1123,6 +1123,165 @@ describe('viewer review fixes (H11, H12, H14)', () => {
   });
 });
 
+describe('H17: the viewer conversation view is opt-in, text-only and bounded', () => {
+  const line = (record: Record<string, unknown>) => JSON.stringify(record);
+
+  it('shows prompts and replies, never tool inputs, outputs or thinking', async () => {
+    const { conversationFromText } = await import('../src/viewerConversation.js');
+    const text = [
+      line({ type: 'user', timestamp: '2026-11-10T10:00:00Z', message: { role: 'user', content: 'faça X<system-reminder>SEGREDO-DO-HARNESS</system-reminder>' } }),
+      line({ type: 'assistant', message: { content: [
+        { type: 'thinking', thinking: 'PENSAMENTO-PRIVADO' },
+        { type: 'text', text: 'Vou ler o arquivo.' },
+        { type: 'tool_use', id: 't1', name: 'Write', input: { file_path: '/home/u/projeto/notas.txt', content: 'CONTEUDO-DO-ARQUIVO' } },
+        { type: 'tool_use', id: 't2', name: 'Bash', input: { command: 'ls -la' } },
+      ] } }),
+      line({ type: 'user', toolUseResult: {}, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'SAIDA-DA-FERRAMENTA' }] } }),
+      line({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't2', content: 'SAIDA-2' }] } }),
+      line({ type: 'user', isMeta: true, message: { role: 'user', content: 'META-REGISTRO' } }),
+      line({ type: 'user', isSidechain: true, message: { role: 'user', content: 'SUBAGENTE' } }),
+      line({ type: 'user', message: { role: 'user', content: '<local-command-stdout>SAIDA-LOCAL</local-command-stdout>' } }),
+      line({ type: 'user', message: { role: 'user', content: '<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>opus</command-args>' } }),
+      line({ type: 'system', content: 'SISTEMA' }),
+      'not json',
+    ].join('\n');
+    const { entries, truncated } = conversationFromText(text, false);
+    const all = JSON.stringify(entries);
+    for (const hidden of ['SEGREDO-DO-HARNESS', 'PENSAMENTO-PRIVADO', 'CONTEUDO-DO-ARQUIVO', 'SAIDA-DA-FERRAMENTA', 'SAIDA-2', 'META-REGISTRO', 'SUBAGENTE', 'SAIDA-LOCAL', 'SISTEMA', '/home/u/projeto']) {
+      expect(all).not.toContain(hidden);
+    }
+    expect(entries.map((e) => e.role)).toEqual(['user', 'assistant', 'tool', 'tool', 'user']);
+    expect(entries[0].text).toBe('faça X');
+    expect(entries[0].t).toBe(Date.parse('2026-11-10T10:00:00Z'));
+    expect(entries[2].text).toBe('Writing notas.txt');
+    expect(entries[4].text).toBe('/model opus');
+    expect(truncated).toBe(false);
+  });
+
+  it('is bounded: last entries only, each text capped, a mid-file start drops the fragment', async () => {
+    const { conversationFromText, CONVERSATION_MAX_ENTRIES, CONVERSATION_MAX_TEXT } = await import(
+      '../src/viewerConversation.js'
+    );
+    const many = Array.from({ length: CONVERSATION_MAX_ENTRIES + 20 }, (_, i) =>
+      line({ type: 'user', message: { role: 'user', content: `msg ${i}` } }),
+    ).join('\n');
+    const tail = conversationFromText(many, false);
+    expect(tail.entries).toHaveLength(CONVERSATION_MAX_ENTRIES);
+    expect(tail.entries[tail.entries.length - 1].text).toBe(`msg ${CONVERSATION_MAX_ENTRIES + 19}`);
+    expect(tail.truncated).toBe(true);
+    const long = conversationFromText(line({ type: 'user', message: { content: 'a'.repeat(CONVERSATION_MAX_TEXT * 3) } }), false);
+    expect(long.entries[0].text.length).toBeLessThanOrEqual(CONVERSATION_MAX_TEXT + 1);
+    const mid = conversationFromText(`"fragmento": "FRAG"}\n${line({ type: 'user', message: { content: 'ok' } })}`, true);
+    expect(mid.entries.map((e) => e.text)).toEqual(['ok']);
+    expect(mid.truncated).toBe(true);
+  });
+
+  it('masks what looks like a credential', async () => {
+    const { redactSecrets } = await import('../src/viewerConversation.js');
+    const samples = [
+      'sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      'ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      'github_pat_11AAAAAAAAAAAAAAAAAAAAAAAAAA',
+      'AKIAABCDEFGHIJKLMNOP',
+      'xoxb-1234567890-abcdefghij',
+      'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U',
+      '-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXk\n-----END OPENSSH PRIVATE KEY-----',
+    ];
+    for (const secret of samples) {
+      const out = redactSecrets(`antes ${secret} depois`);
+      expect(out).toContain('<redacted>');
+      expect(out).not.toContain(secret);
+    }
+    expect(redactSecrets('Authorization: Bearer abc123def456ghi789')).not.toContain('abc123def456ghi789');
+    expect(redactSecrets('DB_PASSWORD=hunter2hunter2')).toBe('DB_PASSWORD=<redacted>');
+    expect(redactSecrets('https://user:s3cr3t@example.com/x')).toBe('https://user:<redacted>@example.com/x');
+    // Ordinary prose stays readable.
+    expect(redactSecrets('Basic authentication is fine')).toBe('Basic authentication is fine');
+    expect(redactSecrets('commit 9d1e1f4 no secure')).toBe('commit 9d1e1f4 no secure');
+  });
+
+  it('is answered only by a viewer whose operator turned it on, and only from the agent\'s own transcript', async () => {
+    const os = await import('os');
+    const { WebSocket } = await import('ws');
+    const { PixelAgentsServer } = await import('../src/server.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const { createAgentState } = await import('../src/agentState.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-conv-'));
+    const transcript = path.join(dir, 'sessao.jsonl');
+    fs.writeFileSync(transcript, line({ type: 'user', message: { content: 'PROMPT-DO-AGENTE' } }) + '\n');
+    const other = path.join(dir, 'outro.jsonl');
+    fs.writeFileSync(other, line({ type: 'user', message: { content: 'OUTRO-ARQUIVO' } }) + '\n');
+
+    const ask = async (options: { readOnly: boolean; conversation?: boolean }) => {
+      const store = new AgentStateStore();
+      store.set(7, createAgentState({ id: 7, sessionId: 's', projectDir: dir, jsonlFile: transcript, isExternal: true }));
+      const server = new PixelAgentsServer();
+      const config = await server.start({ store, embedded: false, ...options });
+      try {
+        const cookie = options.readOnly ? await viewerLogin(config.port, config.token) : '';
+        const url = options.readOnly
+          ? `ws://127.0.0.1:${config.port}/ws`
+          : `ws://127.0.0.1:${config.port}/ws?token=${encodeURIComponent(config.token)}`;
+        const ws = new WebSocket(url, { headers: { cookie } });
+        const answers: Array<Record<string, unknown>> = [];
+        ws.on('message', (d: Buffer) => {
+          const m = JSON.parse(d.toString()) as Record<string, unknown>;
+          if (m.type === 'agentConversation') answers.push(m);
+        });
+        await new Promise<void>((resolve, reject) => {
+          ws.on('open', () => resolve());
+          ws.on('error', reject);
+        });
+        ws.send(JSON.stringify({ type: 'requestAgentConversation', id: 7, path: other, jsonlFile: other }));
+        ws.send(JSON.stringify({ type: 'requestAgentConversation', id: 99 }));
+        for (let i = 0; i < 40 && answers.length < 2; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        ws.close();
+        return answers;
+      } finally {
+        server.stop();
+      }
+    };
+
+    // Off by default: a viewer without the flag answers "disabled", nothing more.
+    const off = await ask({ readOnly: true });
+    expect(off[0]).toMatchObject({ id: 7, enabled: false, entries: [] });
+    expect(JSON.stringify(off)).not.toContain('PROMPT-DO-AGENTE');
+
+    // A privileged (non-viewer) server ignores the flag.
+    const privileged = await ask({ readOnly: false, conversation: true });
+    expect(privileged[0]).toMatchObject({ id: 7, enabled: false, entries: [] });
+
+    // On: the agent's own transcript, whatever path the client names.
+    const on = await ask({ readOnly: true, conversation: true });
+    const seven = on.find((m) => m.id === 7)!;
+    expect(seven.enabled).toBe(true);
+    expect(JSON.stringify(seven)).toContain('PROMPT-DO-AGENTE');
+    expect(JSON.stringify(on)).not.toContain('OUTRO-ARQUIVO');
+    expect(on.find((m) => m.id === 99)).toMatchObject({ enabled: true, entries: [] });
+  });
+
+  it('the read-only gate gained exactly this one exception, and the switch is the service environment', async () => {
+    const handler = fs.readFileSync(path.join(REPO_ROOT, 'server/src/clientMessageHandler.ts'), 'utf-8');
+    expect(handler).toContain("if (!ctx.privileged && msg.type !== 'webviewReady') {");
+    const beforeGate = handler.slice(0, handler.indexOf("if (!ctx.privileged && msg.type !== 'webviewReady') {"));
+    const handled = [...beforeGate.matchAll(/msg\.type === '([A-Za-z]+)'/g)].map((m) => m[1]);
+    expect(handled).toEqual(['requestAgentConversation']);
+    const http = fs.readFileSync(path.join(REPO_ROOT, 'server/src/httpServer.ts'), 'utf-8');
+    expect(http).toContain('conversation: options.readOnly === true && options.conversation === true');
+    const { conversationEnabled, CONVERSATION_ENV } = await import('../src/viewer.js');
+    expect(conversationEnabled({})).toBe(false);
+    expect(conversationEnabled({ [CONVERSATION_ENV]: 'true' })).toBe(false);
+    expect(conversationEnabled({ [CONVERSATION_ENV]: '1' })).toBe(true);
+    // The extension never offers it.
+    for (const file of ['adapters/vscode/PixelAgentsViewProvider.ts', 'server/src/cli.ts']) {
+      const source = fs.readFileSync(path.join(REPO_ROOT, file), 'utf-8');
+      expect(source).not.toMatch(/conversation:\s*true|PIXEL_AGENTS_VIEWER_CONVERSATION|ActivityLog/);
+    }
+  });
+});
+
 describe('viewer activity history: only the labels the office already shows', () => {
   it('records turns, tool labels and permissions; never a tool input', async () => {
     const os = await import('os');
