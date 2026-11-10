@@ -164,6 +164,13 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
     await app.register(fastifyStatic, {
       root: options.staticDir,
       prefix: '/',
+      // pixel-agents-secure (H14): the viewer's files are never cached nor
+      // revalidated. Every packaged file carries the same fixed date, so the
+      // default validators (ETag from size and date, Last-Modified) were equal
+      // across versions: after an update the browser was told "304, unchanged"
+      // for index.html and kept asking for a script that no longer existed.
+      // Without them, the `no-store` of registerViewerHeaders stands.
+      ...(options.readOnly ? { cacheControl: false, etag: false, lastModified: false } : {}),
     });
     // HTML5 history fallback: serve index.html for unmatched routes
     app.setNotFoundHandler((_req, reply) => {

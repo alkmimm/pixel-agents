@@ -1032,6 +1032,21 @@ describe('viewer review fixes (H11, H12, H14)', () => {
       expect(await (await fetch(`${base}/assets/app.js`, { headers: { cookie } })).text()).toBe(
         'SPA-BUNDLE',
       );
+      // H14: never cached, never "304 unchanged". The packaged files all carry
+      // the same date, so a validator would call a new version unchanged.
+      for (const p of ['/', '/assets/app.js']) {
+        const res = await fetch(`${base}${p}`, {
+          headers: {
+            cookie,
+            'if-modified-since': new Date(Date.now() + 86_400_000).toUTCString(),
+            'if-none-match': '*',
+          },
+        });
+        expect(res.status, p).toBe(200);
+        expect(res.headers.get('cache-control'), p).toBe('no-store');
+        expect(res.headers.get('etag'), p).toBeNull();
+        expect(res.headers.get('last-modified'), p).toBeNull();
+      }
       // The ingest routes still answer to their own Bearer check, not the session.
       const hook = await fetch(`${base}/api/hooks/claude`, {
         method: 'POST',
