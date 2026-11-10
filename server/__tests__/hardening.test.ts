@@ -516,6 +516,68 @@ describe('H7 (routes that matter): a forged Host reaches no handler', () => {
   });
 });
 
+describe('H7 (token before body): a request without the token never has its body read', () => {
+  it('answers 401 to a malformed or oversized body, before the parser could object', async () => {
+    const http = await import('http');
+    const { createHttpServer } = await import('../src/httpServer.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const { MAX_HOOK_BODY_SIZE } = await import('../src/constants.js');
+    let handled = 0;
+    const { app, port } = await createHttpServer({
+      embedded: true,
+      token: 't',
+      store: new AgentStateStore(),
+      onHookEvent: () => handled++,
+    });
+    const post = (urlPath: string, body: string, auth?: string) =>
+      new Promise<{ status: number; connection: unknown }>((resolve, reject) => {
+        const req = http.request(
+          {
+            hostname: '127.0.0.1',
+            port,
+            path: urlPath,
+            method: 'POST',
+            agent: false,
+            headers: {
+              'content-type': 'application/json',
+              ...(auth ? { authorization: auth } : {}),
+            },
+          },
+          (res) => {
+            res.resume();
+            resolve({ status: res.statusCode ?? 0, connection: res.headers.connection });
+          },
+        );
+        // The server may close before the whole body is sent.
+        req.on('error', (e) => ((e as NodeJS.ErrnoException).code === 'EPIPE' ? null : reject(e)));
+        req.end(body);
+      });
+    const oversized = JSON.stringify({ pad: 'x'.repeat(MAX_HOOK_BODY_SIZE * 2) });
+    try {
+      for (const route of ['/api/hooks/claude', '/api/usage/claude']) {
+        for (const auth of [undefined, 'Bearer wrong']) {
+          for (const body of ['{not json', oversized]) {
+            const res = await post(route, body, auth);
+            expect(res.status).toBe(401);
+            expect(res.connection).toBe('close');
+          }
+        }
+      }
+      expect(handled).toBe(0);
+      // With the token, the parser does run: proof the 401s above came first.
+      expect((await post('/api/hooks/claude', '{not json', 'Bearer t')).status).toBe(400);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('auth is registered as onRequest, never preHandler', () => {
+    const src = fs.readFileSync(path.join(REPO_ROOT, 'server/src/httpServer.ts'), 'utf-8');
+    expect(src).not.toMatch(/preHandler:\s*bearerAuth/);
+    expect(src.match(/onRequest:\s*bearerAuth\(options\.token\)/g)).toHaveLength(2);
+  });
+});
+
 // The BUNDLED hook script, as Claude Code runs it. Needs dist/ (the governance
 // build runs this suite after building, and fails on any skipped test).
 const BUNDLED_HOOK = path.join(REPO_ROOT, 'dist/hooks/claude-hook.js');

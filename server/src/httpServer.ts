@@ -202,7 +202,13 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
 
   // ── Listen ──────────────────────────────────────────────────
 
-  await app.listen({ host, port: options.port ?? 0 });
+  try {
+    await app.listen({ host, port: options.port ?? 0 });
+  } catch (err) {
+    // A failed bind (port taken) must not leave the plugins and timers alive.
+    await app.close();
+    throw err;
+  }
   const address = app.server.address();
   const port = typeof address === 'object' ? (address?.port ?? 0) : 0;
   listeningPort = port;
@@ -229,7 +235,7 @@ function registerHookRoute(app: FastifyInstance, options: HttpServerOptions): vo
   }>(
     `${HOOK_API_PREFIX}/:providerId`,
     {
-      preHandler: bearerAuth(options.token),
+      onRequest: bearerAuth(options.token),
       schema: {
         params: {
           type: 'object',
@@ -266,7 +272,7 @@ function registerUsageRoute(app: FastifyInstance, options: HttpServerOptions): v
   app.post<{ Params: { providerId: string }; Body: unknown }>(
     `${USAGE_API_PREFIX}/:providerId`,
     {
-      preHandler: bearerAuth(options.token),
+      onRequest: bearerAuth(options.token),
       schema: {
         params: {
           type: 'object',
@@ -398,10 +404,17 @@ function registerWebSocketRoute(
 
 // ── Auth Helper ────────────────────────────────────────────────
 
+/**
+ * pixel-agents-secure (H7): registered as `onRequest`, so a request without
+ * the token is refused before Fastify reads or parses its body. As a
+ * `preHandler` it ran after the body parser: anyone on this machine could make
+ * the server read and parse a body without holding the token. The refusal
+ * closes the connection, like the Host gate's: its body was never read.
+ */
 function bearerAuth(expectedToken: string) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
     if (!bearerTokenValid(request.headers.authorization, expectedToken)) {
-      reply.code(401).send('unauthorized');
+      await reply.code(401).header('connection', 'close').send('unauthorized');
     }
   };
 }
