@@ -1177,7 +1177,7 @@ describe('H17: the viewer conversation view is opt-in, text-only and bounded', (
   });
 
   it('masks what looks like a credential', async () => {
-    const { redactSecrets } = await import('../src/viewerConversation.js');
+    const { redactSecrets } = await import('../src/secretMask.js');
     const samples = [
       'sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       'ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
