@@ -7,7 +7,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import App from './App.tsx';
-import { installPictureInPictureButton } from './pictureInPicture';
+import { installPictureInPictureButton, prepareResizeObservers } from './pictureInPicture';
 import { isBrowserRuntime } from './runtime';
 
 async function main() {
@@ -17,6 +17,8 @@ async function main() {
     const { initBrowserMock } = await import('./browserMock.js');
     await initBrowserMock();
   }
+  // pixel-agents-secure (local): before the first render, see pictureInPicture.ts.
+  if (isBrowserRuntime) prepareResizeObservers();
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />

@@ -12,6 +12,12 @@
  * While the app lives in the picture-in-picture window, animation frames are
  * taken from THAT window: the opener tab is usually in the background, where
  * the browser stops delivering frames, and the office would freeze.
+ *
+ * Size changes have the same problem. A ResizeObserver belongs to the window
+ * that created it, and the opener's observers are not served while its tab is
+ * in the background: the canvas kept the size it had when it moved. So every
+ * observer the app creates is a thin proxy (below) whose real observer is
+ * re-created in whichever window currently holds the app.
  */
 
 interface PipController {
@@ -21,6 +27,68 @@ interface PipController {
 const PIP_WIDTH = 520;
 const PIP_HEIGHT = 320;
 const BUTTON_ID = 'pixel-agents-pip-button';
+
+type ResizeObserverCtor = typeof ResizeObserver;
+
+/** The window whose ResizeObserver serves the app right now. */
+let observerHome: ResizeObserverCtor | null = null;
+const liveObservers = new Set<RehomingResizeObserver>();
+
+class RehomingResizeObserver implements ResizeObserver {
+  private inner: ResizeObserver;
+  private readonly targets = new Map<Element, ResizeObserverOptions | undefined>();
+
+  constructor(private readonly callback: ResizeObserverCallback) {
+    this.inner = this.make();
+  }
+
+  private make(): ResizeObserver {
+    const Ctor = observerHome as ResizeObserverCtor;
+    return new Ctor((entries) => this.callback(entries, this));
+  }
+
+  observe(target: Element, options?: ResizeObserverOptions): void {
+    this.targets.set(target, options);
+    liveObservers.add(this);
+    this.inner.observe(target, options);
+  }
+
+  unobserve(target: Element): void {
+    this.targets.delete(target);
+    if (this.targets.size === 0) liveObservers.delete(this);
+    this.inner.unobserve(target);
+  }
+
+  disconnect(): void {
+    this.targets.clear();
+    liveObservers.delete(this);
+    this.inner.disconnect();
+  }
+
+  /** Observe the same targets from the current home window. A fresh observer
+   *  reports every target once, which is the re-measure the move needs. */
+  rehome(): void {
+    this.inner.disconnect();
+    this.inner = this.make();
+    for (const [target, options] of this.targets) this.inner.observe(target, options);
+  }
+}
+
+function moveObservers(home: ResizeObserverCtor): void {
+  observerHome = home;
+  for (const observer of [...liveObservers]) observer.rehome();
+}
+
+/**
+ * Route the app's ResizeObservers through the proxy. Call BEFORE the app
+ * renders, so no component holds a plain observer. A no-op where picture-in-
+ * picture is unavailable.
+ */
+export function prepareResizeObservers(): void {
+  if (observerHome !== null || !pipController() || typeof ResizeObserver !== 'function') return;
+  observerHome = window.ResizeObserver;
+  window.ResizeObserver = RehomingResizeObserver;
+}
 
 function pipController(): PipController | null {
   const candidate = (window as unknown as { documentPictureInPicture?: PipController })
@@ -59,6 +127,11 @@ async function openPictureInPicture(controller: PipController, root: HTMLElement
   // The frame already pending on the opener fires while this tab is still
   // visible (the click happened in it); every frame after that is asked of
   // the new window. The resize lets the canvas measure its new home.
+  const pipObserver = (pip as unknown as { ResizeObserver?: ResizeObserverCtor }).ResizeObserver;
+  const openerObserver = observerHome;
+  if (openerObserver && pipObserver) moveObservers(pipObserver);
+  // Code that listens for the opener's `resize` hears the new window's too.
+  pip.addEventListener('resize', () => window.dispatchEvent(new Event('resize')));
   window.dispatchEvent(new Event('resize'));
 
   pip.addEventListener(
@@ -68,6 +141,7 @@ async function openPictureInPicture(controller: PipController, root: HTMLElement
       window.cancelAnimationFrame = openerCancel;
       home.insertBefore(root, placeholder);
       placeholder.remove();
+      if (openerObserver) moveObservers(openerObserver);
       window.dispatchEvent(new Event('resize'));
     },
     { once: true },
@@ -87,8 +161,11 @@ export function installPictureInPictureButton(): void {
   button.title = 'Abrir o escritório numa janela flutuante, sempre por cima';
   button.style.cssText = [
     'position:fixed',
-    'top:8px',
-    'right:8px',
+    // Bottom-left: the right edge is the agent cards' column, the top-left
+    // the zoom buttons, the bottom-right the music player. A read-only office
+    // has no toolbar there.
+    'bottom:8px',
+    'left:8px',
     'z-index:2147483000',
     'padding:4px 10px',
     'font:inherit',
