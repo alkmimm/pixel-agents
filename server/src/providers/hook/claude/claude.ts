@@ -138,7 +138,36 @@ function buildLaunchCommand(
 /** Root that holds every Claude session across all workspaces. Used by the
  *  global session scanner ("Watch All Sessions"). */
 function getAllSessionRoots(): string[] {
-  return [path.join(os.homedir(), '.claude', 'projects')];
+  return [path.join(os.homedir(), '.claude', 'projects'), ...extraSessionRoots()];
+}
+
+/** pixel-agents-secure (H16): how many extra transcript roots are honoured. */
+const MAX_EXTRA_SESSION_ROOTS = 4;
+
+/**
+ * pixel-agents-secure (H16): more transcript roots to WATCH, read-only, so one
+ * office can show the Claude Code sessions of another home on the same machine
+ * (the Windows profile, seen from WSL as /mnt/c/Users/<user>/.claude/projects).
+ *
+ * Taken from PIXEL_AGENTS_EXTRA_SESSION_ROOTS (path-delimiter separated), which
+ * only the office viewer's service sets. A root is honoured only when it is an
+ * absolute path that ends in `.claude/projects`: the variable can add Claude
+ * transcript folders and nothing else. Nothing is ever written under a root.
+ */
+export function extraSessionRoots(env: NodeJS.ProcessEnv = process.env): string[] {
+  const own = path.join(os.homedir(), '.claude', 'projects');
+  const roots: string[] = [];
+  for (const raw of (env['PIXEL_AGENTS_EXTRA_SESSION_ROOTS'] ?? '').split(path.delimiter)) {
+    const root = path.normalize(raw.trim());
+    if (!raw.trim() || !path.isAbsolute(root)) continue;
+    if (path.basename(root) !== 'projects' || path.basename(path.dirname(root)) !== '.claude') {
+      continue;
+    }
+    if (root === own || roots.includes(root)) continue;
+    roots.push(root);
+    if (roots.length === MAX_EXTRA_SESSION_ROOTS) break;
+  }
+  return roots;
 }
 
 // ── normalizeHookEvent: the single Claude-specific normalization boundary ──

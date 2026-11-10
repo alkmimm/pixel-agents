@@ -675,7 +675,7 @@ describe('H11: the office viewer is read-only', () => {
 // The BUNDLED viewer, started for real. Needs dist/ (run by the governance build).
 const BUNDLED_VIEWER = path.join(REPO_ROOT, 'dist/office-server.js');
 describe.skipIf(!fs.existsSync(BUNDLED_VIEWER))('H11 + H15: the bundled viewer', () => {
-  it('starts with no node_modules of its own, on loopback, and writes nothing under ~/.claude', async () => {
+  it('starts, answers on loopback, and writes nothing under ~/.claude', async () => {
     const os = await import('os');
     const net = await import('net');
     const { spawn } = await import('child_process');
@@ -861,6 +861,44 @@ describe('H12 + H13 + H14: viewer access', () => {
       expect(res.headers.get('content-security-policy')).toBeNull();
     } finally {
       server.stop();
+    }
+  });
+});
+
+describe('H16: extra transcript roots are Claude transcript folders, and nothing else', () => {
+  it('honours only absolute paths ending in .claude/projects, capped and deduplicated', async () => {
+    const { extraSessionRoots, claudeProvider } = await import(
+      '../src/providers/hook/claude/claude.js'
+    );
+    const d = path.delimiter;
+    const win = '/mnt/c/Users/someone/.claude/projects';
+    expect(extraSessionRoots({})).toEqual([]);
+    expect(
+      extraSessionRoots({
+        PIXEL_AGENTS_EXTRA_SESSION_ROOTS: [
+          win,
+          win, // duplicate
+          'relative/.claude/projects',
+          '/etc',
+          '/home/someone/.ssh',
+          '/home/someone/.claude', // not the projects folder
+          `${win}/../../.ssh`, // normalizes away from .claude/projects
+          '',
+        ].join(d),
+      }),
+    ).toEqual([win]);
+    const many = Array.from({ length: 9 }, (_, i) => `/h${i}/.claude/projects`).join(d);
+    expect(extraSessionRoots({ PIXEL_AGENTS_EXTRA_SESSION_ROOTS: many })).toHaveLength(4);
+
+    const before = process.env['PIXEL_AGENTS_EXTRA_SESSION_ROOTS'];
+    process.env['PIXEL_AGENTS_EXTRA_SESSION_ROOTS'] = win;
+    try {
+      const roots = claudeProvider.getAllSessionRoots!();
+      expect(roots).toHaveLength(2);
+      expect(roots[1]).toBe(win);
+    } finally {
+      if (before === undefined) delete process.env['PIXEL_AGENTS_EXTRA_SESSION_ROOTS'];
+      else process.env['PIXEL_AGENTS_EXTRA_SESSION_ROOTS'] = before;
     }
   });
 });
