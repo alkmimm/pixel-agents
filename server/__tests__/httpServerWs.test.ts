@@ -309,8 +309,9 @@ describe('/ws privileged-message gate', () => {
     const result = await connect(port, { Origin: `http://${forged}`, Host: forged });
     sockets.push(result.socket);
 
-    // The connection gate passes — that is precisely the residual.
-    expect(result.accepted).toBe(true);
+    // pixel-agents-secure (H7): the residual is closed -- a foreign Host is
+    // refused at the HTTP layer, before the upgrade.
+    expect(result.accepted).toBe(false);
 
     await sendToggle(result.socket, true);
     expect(sideEffects).toEqual([]);
@@ -422,7 +423,8 @@ describe('/ws privileged-message gate', () => {
       { Origin: `http://${forged}`, Host: forged },
     );
     sockets.push(result.socket);
-    expect(result.accepted).toBe(true);
+    // pixel-agents-secure (H7): refused at the HTTP layer, token or not.
+    expect(result.accepted).toBe(false);
 
     await sendToggle(result.socket, true);
     expect(sideEffects).toEqual([]);

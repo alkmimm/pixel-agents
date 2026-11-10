@@ -34,6 +34,7 @@ import {
 import {
   bearerTokenValid,
   isAllowedWebSocketOrigin,
+  normalizeHostname,
   privilegedHostnames,
   redactTokenQuery,
   standaloneHandshakeVerdict,
@@ -90,6 +91,16 @@ const startTime = Date.now();
  * framework-agnostic. If Fastify is ever replaced, only this file changes.
  */
 export async function createHttpServer(options: HttpServerOptions): Promise<HttpServerHandle> {
+  // pixel-agents-secure (H2): loopback only. Any other bind request is a bug or
+  // an attack, never a configuration -- fail closed before anything is built.
+  if (options.host !== undefined && options.host !== LOOPBACK_BIND_HOST) {
+    throw new Error(
+      `Refusing to bind to "${options.host}": this build listens on ${LOOPBACK_BIND_HOST} only.`,
+    );
+  }
+  const host = LOOPBACK_BIND_HOST;
+  const allowedHostnames = privilegedHostnames(host, options.allowedHosts ?? []);
+
   const app = Fastify({
     // Standalone logs every request. The privilege token rides `/ws?token=`
     // and `/terminal/:id?token=` handshakes, so the url is redacted before it
@@ -99,7 +110,22 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
     bodyLimit: MAX_HOOK_BODY_SIZE,
   });
 
-  await app.register(fastifyCors, { origin: true });
+  // pixel-agents-secure (H7): every request must name this machine's loopback
+  // (or an explicit allowed host) in Host. A DNS-rebound page reaches
+  // 127.0.0.1 under its own domain name and is refused here, before any route
+  // -- health, hooks, /ws, the terminal, the SPA -- runs. Registered before the
+  // plugins so their routes inherit it.
+  app.addHook('onRequest', async (request, reply) => {
+    const name = normalizeHostname(request.headers.host);
+    if (name === null || !allowedHostnames.has(name)) {
+      await reply.code(403).send('forbidden host');
+    }
+  });
+
+  // pixel-agents-secure (H7): no CORS. Legitimate clients are same-origin (the
+  // standalone SPA) or not browsers (hook scripts); reflecting every Origin
+  // only let arbitrary web pages read our responses (e.g. /api/health).
+  await app.register(fastifyCors, { origin: false });
   await app.register(fastifyWebsocket);
 
   // Static SPA serving (standalone mode only)
@@ -115,16 +141,6 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
   }
 
   // ── Routes ──────────────────────────────────────────────────
-
-  // pixel-agents-secure (H2): loopback only. Any other bind request is a bug or
-  // an attack, never a configuration -- fail closed before listening.
-  if (options.host !== undefined && options.host !== LOOPBACK_BIND_HOST) {
-    throw new Error(
-      `Refusing to bind to "${options.host}": this build listens on ${LOOPBACK_BIND_HOST} only.`,
-    );
-  }
-  const host = LOOPBACK_BIND_HOST;
-  const allowedHostnames = privilegedHostnames(host, options.allowedHosts ?? []);
 
   registerHealthRoute(app);
   registerHookRoute(app, options);

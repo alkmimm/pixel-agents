@@ -311,3 +311,55 @@ describe('H6: the VS Code webview runs under a Content-Security-Policy', () => {
     );
   });
 });
+
+describe('H7: no CORS and a loopback-only Host on every request', () => {
+  async function request(
+    port: number,
+    opts: { method?: string; host?: string; headers?: Record<string, string> } = {},
+  ): Promise<{ status: number; headers: Record<string, unknown> }> {
+    const http = await import('http');
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          hostname: '127.0.0.1',
+          port,
+          path: '/api/health',
+          method: opts.method ?? 'GET',
+          headers: { ...(opts.host ? { host: opts.host } : {}), ...opts.headers },
+        },
+        (res) => {
+          res.resume();
+          resolve({ status: res.statusCode ?? 0, headers: res.headers });
+        },
+      );
+      req.on('error', reject);
+      req.end();
+    });
+  }
+
+  it('refuses a DNS-rebound Host and never sends CORS headers', async () => {
+    const { PixelAgentsServer } = await import('../src/server.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const server = new PixelAgentsServer();
+    const { port } = await server.start({ store: new AgentStateStore(), embedded: true });
+    try {
+      const evilOrigin = { origin: 'https://evil.example' };
+      const ok = await request(port, { headers: evilOrigin });
+      expect(ok.status).toBe(200);
+      expect(ok.headers['access-control-allow-origin']).toBeUndefined();
+
+      const preflight = await request(port, {
+        method: 'OPTIONS',
+        headers: { ...evilOrigin, 'access-control-request-method': 'POST' },
+      });
+      expect(preflight.headers['access-control-allow-origin']).toBeUndefined();
+
+      for (const host of [`evil.example:${port}`, `127.0.0.1.evil.example:${port}`]) {
+        expect((await request(port, { host })).status).toBe(403);
+      }
+      expect((await request(port, { host: `localhost:${port}` })).status).toBe(200);
+    } finally {
+      server.stop();
+    }
+  });
+});

@@ -193,10 +193,9 @@ describe('terminal WebSocket auth', () => {
     // rebound URL). origin === host, so the same-origin check alone would pass;
     // the Host allowlist (wsAuth.standaloneHandshakeVerdict) is what rejects it.
     const result = await attach(port, 1, token, 'http://evil.com', 'evil.com');
-    // As with the other rejections, the WS upgrade completes and the handler
-    // then closes with the app code -- the close code is the signal, and no
-    // scrollback/live output is ever sent before it (verified end-to-end).
-    expect(result.code).toBe(WS_CLOSE_FORBIDDEN_ORIGIN);
+    // pixel-agents-secure (H7): refused with HTTP 403 before the upgrade, so
+    // the socket never opens at all.
+    expect(result.opened).toBe(false);
   });
 
   it('accepts a reverse-proxy attach once its Host is passed as --allowed-host', async () => {
@@ -204,7 +203,8 @@ describe('terminal WebSocket auth', () => {
     // escape was binding 0.0.0.0 -- exposing the port to the LAN.
     const proxy = 'my-mac.tailnet.ts.net';
     const refused = await attach(port, 1, token, `https://${proxy}`, proxy);
-    expect(refused.code).toBe(WS_CLOSE_FORBIDDEN_ORIGIN);
+    // pixel-agents-secure (H7): an unlisted Host never gets past HTTP.
+    expect(refused.opened).toBe(false);
 
     server.stop();
     server = new PixelAgentsServer();
