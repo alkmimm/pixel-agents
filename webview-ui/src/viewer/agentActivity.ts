@@ -12,12 +12,15 @@
  */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
+import { TRANSPORT_STATE_CONNECTED } from '../../../core/src/constants.js';
 import type { ClientMessage } from '../../../core/src/messages.js';
 import { transport } from '../transport/index.js';
 
 export type ActivityKind = 'joined' | 'turn' | 'tool' | 'subtool' | 'permission' | 'done' | 'input';
 
 export interface ActivityEntry {
+  /** Sequence number within the agent's history (absent from older servers). */
+  n?: number;
   t: number;
   k: ActivityKind;
   label?: string;
@@ -125,6 +128,19 @@ export function useAgentActivity(id: number | null): AgentActivity | undefined {
   return id === null ? undefined : activities.get(id);
 }
 
+/** The agent's last turn state ('turn', 'done' or 'input') and when, read
+ *  outside React (the tab title counts from it). The bubbles over the
+ *  characters fade after a couple of seconds; this does not. */
+export function lastTurnState(id: number): ActivityEntry | undefined {
+  const entries = activities.get(id)?.entries;
+  if (!entries) return undefined;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const k = entries[i].k;
+    if (k === 'turn' || k === 'done' || k === 'input') return entries[i];
+  }
+  return undefined;
+}
+
 /** Whether this server offers the conversation view at all (H17). */
 export function useConversationOffered(): boolean {
   useSyncExternalStore(subscribe, () => version);
@@ -146,15 +162,21 @@ export function useNow(ms = 15_000): number {
 const CONVERSATION_POLL_MS = 4_000;
 
 /** The agent's conversation while `active`, asked again every few seconds.
- *  Nothing is asked while the tab is closed. */
+ *  Nothing is asked while the tab is closed or the connection is down (a
+ *  disconnected transport would queue every ask and flush them all at once on
+ *  reconnect). The version already shown rides each ask, and an unchanged
+ *  transcript is answered with `unchanged` instead of the same entries. */
 export function useAgentConversation(id: number | null, active: boolean): AgentConversation | null {
   const [conversation, setConversation] = useState<AgentConversation | null>(null);
   useEffect(() => {
     setConversation(null);
     if (id === null || !active) return;
+    let version: string | undefined;
     const unsubscribe = transport.onMessage((raw) => {
       const msg = raw as unknown as Record<string, unknown>;
       if (msg.type !== 'agentConversation' || msg.id !== id) return;
+      if (msg.unchanged === true) return;
+      version = typeof msg.version === 'string' ? msg.version : undefined;
       setConversation({
         enabled: msg.enabled === true,
         entries: Array.isArray(msg.entries) ? (msg.entries as ConversationEntry[]) : [],
@@ -163,12 +185,25 @@ export function useAgentConversation(id: number | null, active: boolean): AgentC
         receivedAt: Date.now(),
       });
     });
-    const ask = () =>
-      transport.send({ type: 'requestAgentConversation', id } as unknown as ClientMessage);
+    const ask = () => {
+      if (transport.state !== TRANSPORT_STATE_CONNECTED) return;
+      transport.send({
+        type: 'requestAgentConversation',
+        id,
+        ...(version ? { version } : {}),
+      } as unknown as ClientMessage);
+    };
+    // A reconnect may follow a server restart: ask afresh.
+    const unwatch = transport.onStateChange((state) => {
+      if (state !== TRANSPORT_STATE_CONNECTED) return;
+      version = undefined;
+      ask();
+    });
     ask();
     const timer = setInterval(ask, CONVERSATION_POLL_MS);
     return () => {
       clearInterval(timer);
+      unwatch();
       unsubscribe();
     };
   }, [id, active]);

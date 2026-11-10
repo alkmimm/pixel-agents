@@ -176,6 +176,25 @@ export async function openPictureInPicture(onClose: () => void): Promise<void> {
   });
   window.dispatchEvent(new Event('resize'));
   fitOffice(true);
+  // Keyboard handlers listen on the opener (Escape closes the details panel and
+  // the dialogs): keys pressed in the floating window reach them too.
+  for (const type of ['keydown', 'keyup'] as const) {
+    pip.addEventListener(type, (e) => {
+      window.dispatchEvent(
+        new KeyboardEvent(type, {
+          key: e.key,
+          code: e.code,
+          ctrlKey: e.ctrlKey,
+          shiftKey: e.shiftKey,
+          altKey: e.altKey,
+          metaKey: e.metaKey,
+          repeat: e.repeat,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+  }
   // The copied stylesheets load after this point, and the layout only settles
   // then: fit again once each has arrived.
   for (const link of pip.document.querySelectorAll('link[rel="stylesheet"]')) {

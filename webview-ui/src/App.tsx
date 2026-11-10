@@ -258,11 +258,18 @@ function App() {
     setGhostHeadlessAgents,
   ]);
 
-  // The viewer's own notification sound choice, re-applied after every
-  // settingsLoaded (which would otherwise carry the extension's setting).
+  // The viewer's own notification sound choice. settingsLoaded carries the
+  // server's setting and is applied by useExtensionMessages, so ours is put
+  // back right after each one, not only when this component happens to render.
+  const soundPref = useRef(viewerPrefs.sound);
+  soundPref.current = viewerPrefs.sound;
   useEffect(() => {
-    if (officeReadOnly) setSoundEnabled(viewerPrefs.sound);
-  });
+    if (!officeReadOnly) return;
+    setSoundEnabled(soundPref.current);
+    return transport.onMessage((msg) => {
+      if (msg.type === 'settingsLoaded') setTimeout(() => setSoundEnabled(soundPref.current), 0);
+    });
+  }, [officeReadOnly, viewerPrefs.sound]);
 
   // pixel-agents-secure (local): the agent whose details panel is open
   // (read-only office only), and the tab title counting who needs you.
@@ -455,7 +462,7 @@ function App() {
     (agentId: number) => {
       if (officeReadOnly) {
         getOfficeState().selectAndFollow(agentId);
-        setDetailsAgentId(agentId);
+        setDetailsAgentId((open) => (open === agentId ? null : agentId));
         return;
       }
       if (terminalAgentIds.includes(agentId)) {

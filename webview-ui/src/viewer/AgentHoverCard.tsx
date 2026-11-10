@@ -93,7 +93,6 @@ export function AgentHoverCard({
   const status = agentStatusView(officeState, agentId, agentTools);
   const entries = activity?.entries ?? [];
   const last = entries[entries.length - 1];
-  const turnStart = [...entries].reverse().find((e) => e.k === 'turn');
   // The tools before the one running now (that one is shown above them).
   const tools = entries.filter((e) => e.k === 'tool');
   if (status.tool && tools[tools.length - 1]?.label === status.tool) tools.pop();
@@ -137,8 +136,8 @@ export function AgentHoverCard({
               style={{ background: TONE_COLOR[status.tone] }}
             />
             <span className="text-xs text-text">{status.text}</span>
-            {status.tone === 'active' && turnStart && (
-              <span className="text-2xs text-text-muted">{timeAgo(turnStart.t, now)}</span>
+            {status.since !== undefined && (
+              <span className="text-2xs text-text-muted">{timeAgo(status.since, now)}</span>
             )}
           </div>
           {status.tool && <span className="text-xs text-text break-words">{status.tool}</span>}

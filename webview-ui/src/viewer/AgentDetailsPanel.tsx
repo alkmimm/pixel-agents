@@ -61,7 +61,9 @@ function useStickToBottom(dep: unknown) {
 }
 
 function ActivityList({ entries }: { entries: ActivityEntry[] }) {
-  const { ref, onScroll } = useStickToBottom(entries.length);
+  // The newest entry, not the count: at the cap the count stops changing.
+  const newest = entries[entries.length - 1];
+  const { ref, onScroll } = useStickToBottom(newest ? (newest.n ?? newest.t) : 0);
   if (entries.length === 0) {
     return (
       <p className="text-xs text-text-muted px-4">
@@ -76,7 +78,7 @@ function ActivityList({ entries }: { entries: ActivityEntry[] }) {
         const isTool = e.k === 'tool' || e.k === 'subtool';
         return (
           <div
-            key={`${e.t}-${i}`}
+            key={e.n ?? `${e.t}-${i}`}
             className={`flex gap-8 py-2 ${marker ? 'mt-4' : ''}`}
             style={BODY_FONT}
           >
@@ -203,7 +205,6 @@ export function AgentDetailsPanel({
   const ch = officeState.characters.get(agentId);
   const status = agentStatusView(officeState, agentId, agentTools);
   const entries = activity?.entries ?? [];
-  const turnStart = [...entries].reverse().find((e) => e.k === 'turn');
   const toolCount = entries.filter((e) => e.k === 'tool').length;
   const contextUsed =
     ch && ch.contextReported ? Math.round((ch.contextTokens / ch.maxContextTokens) * 100) : null;
@@ -240,8 +241,8 @@ export function AgentDetailsPanel({
               style={{ background: TONE_COLOR[status.tone] }}
             />
             <span className="text-xs text-text">{status.text}</span>
-            {status.tone === 'active' && turnStart && (
-              <span className="text-2xs text-text-muted">desde {timeAgo(turnStart.t, now)}</span>
+            {status.since !== undefined && (
+              <span className="text-2xs text-text-muted">desde {timeAgo(status.since, now)}</span>
             )}
           </div>
         </div>
