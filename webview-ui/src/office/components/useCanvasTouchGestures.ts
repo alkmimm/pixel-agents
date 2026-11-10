@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { TOUCH_TAP_MAX_DURATION_MS, ZOOM_MAX, ZOOM_MIN } from '../../constants.js';
 import { unlockAudio } from '../../notificationSound.js';
 import { withinTapSlop } from '../../touch/touchPrimitives.js';
+import { canvasDpr } from '../../viewScale.js';
 
 interface CanvasTouchOptions {
   canvasRef: RefObject<HTMLCanvasElement | null>;
@@ -73,7 +74,7 @@ export function useCanvasTouchGestures(options: CanvasTouchOptions): void {
     };
     const panTo = (p: Point) => {
       const { panRef, clampPan } = latest.current;
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = canvasDpr();
       panRef.current = clampPan(
         panX + (p.clientX - startX) * dpr,
         panY + (p.clientY - startY) * dpr,

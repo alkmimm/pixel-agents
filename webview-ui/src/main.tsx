@@ -7,7 +7,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import App from './App.tsx';
-import { installPictureInPictureButton, prepareResizeObservers } from './pictureInPicture';
+import { prepareResizeObservers } from './pictureInPicture';
 import { isBrowserRuntime } from './runtime';
 
 async function main() {
@@ -24,8 +24,6 @@ async function main() {
       <App />
     </StrictMode>,
   );
-  // pixel-agents-secure (local): browser only; a no-op where the API is missing.
-  if (isBrowserRuntime) installPictureInPictureButton();
 }
 
 main().catch(console.error);

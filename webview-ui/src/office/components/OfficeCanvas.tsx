@@ -5,8 +5,6 @@ import {
   CAMERA_FOLLOW_SNAP_THRESHOLD,
   OFFICE_CANVAS_TEST_ID,
   PAN_MARGIN_FRACTION,
-  ZOOM_MAX,
-  ZOOM_MIN,
   ZOOM_SCROLL_THRESHOLD,
 } from '../../constants.js';
 import { unlockAudio } from '../../notificationSound.js';
@@ -23,6 +21,7 @@ import { selectionButtonAt as buttonAt } from '../engine/selectionButtons.js';
 import { EditTool, TILE_SIZE } from '../types.js';
 import { computeNormalModeCursor } from './officeCanvasCursor.js';
 import { useCanvasTouchGestures } from './useCanvasTouchGestures.js';
+import { canvasDpr, VIEW_SCALE_EVENT } from '../../viewScale.js';
 
 /**
  * Cursor for a furniture drag that has started moving: 'copy' — the platform's
@@ -120,7 +119,7 @@ export function OfficeCanvas({
     const container = containerRef.current;
     if (!canvas || !container) return;
     const rect = container.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = canvasDpr();
     canvas.width = Math.round(rect.width * dpr);
     canvas.height = Math.round(rect.height * dpr);
     canvas.style.width = `${rect.width}px`;
@@ -227,10 +226,18 @@ export function OfficeCanvas({
     if (containerRef.current) {
       observer.observe(containerRef.current);
     }
+    // pixel-agents-secure (local): a fine zoom changes the backing store's
+    // size without changing the container's (viewScale.ts).
+    const onViewScale = (): void => {
+      resizeCanvas();
+      loop.redraw();
+    };
+    window.addEventListener(VIEW_SCALE_EVENT, onViewScale);
 
     return () => {
       loop.stop();
       observer.disconnect();
+      window.removeEventListener(VIEW_SCALE_EVENT, onViewScale);
     };
   }, [
     officeState,
@@ -250,7 +257,7 @@ export function OfficeCanvas({
       const canvas = canvasRef.current;
       if (!canvas) return null;
       const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = canvasDpr();
       // CSS coords relative to canvas
       const cssX = clientX - rect.left;
       const cssY = clientY - rect.top;
@@ -303,7 +310,7 @@ export function OfficeCanvas({
     (e: React.MouseEvent) => {
       // Handle middle-mouse panning
       if (isPanningRef.current) {
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = canvasDpr();
         const dx = (e.clientX - panStartRef.current.mouseX) * dpr;
         const dy = (e.clientY - panStartRef.current.mouseY) * dpr;
         panRef.current = clampPan(panStartRef.current.panX + dx, panStartRef.current.panY + dy);
@@ -774,14 +781,16 @@ export function OfficeCanvas({
         if (Math.abs(zoomAccumulatorRef.current) >= ZOOM_SCROLL_THRESHOLD) {
           const delta = zoomAccumulatorRef.current < 0 ? 1 : -1;
           zoomAccumulatorRef.current = 0;
-          const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom + delta));
+          // pixel-agents-secure (local): only the direction matters to the
+          // handler, which steps the fine zoom and applies its own limits.
+          const newZoom = zoom + delta;
           if (newZoom !== zoom) {
             onZoomChange(newZoom);
           }
         }
       } else {
         // Pan via trackpad two-finger scroll or mouse wheel
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = canvasDpr();
         officeState.breakCameraFollow();
         panRef.current = clampPan(
           panRef.current.x - e.deltaX * dpr,

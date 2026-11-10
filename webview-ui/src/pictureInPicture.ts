@@ -6,8 +6,7 @@
  * moved into a small always-on-top window and moved back when that window
  * closes. Browsers without the API, and the VS Code webview, get no button.
  *
- * Kept out of React on purpose: one DOM button and one import in main.tsx, so
- * upstream changes to the app's components never conflict with it.
+ * The buttons that use this live in ViewerBar.tsx.
  *
  * While the app lives in the picture-in-picture window, animation frames are
  * taken from THAT window: the opener tab is usually in the background, where
@@ -26,24 +25,30 @@ interface PipController {
 
 const PIP_WIDTH = 520;
 const PIP_HEIGHT = 320;
-const BUTTON_ID = 'pixel-agents-pip-button';
-
 /** Asks the app (useEditorActions) for a zoom that fits a box, or to restore
  *  the zoom it had before the first such request. Sizes in CSS pixels. */
 export const FIT_ZOOM_EVENT = 'pixel-agents:fit-zoom';
 export type FitZoomDetail =
   | { restore: true }
-  | { restore?: false; width: number; height: number };
+  | { restore?: false; width: number; height: number; remember: boolean };
+
+/** The app's root element. Looked up once: while the app floats, it is no
+ *  longer in this document. */
+let rootElement: HTMLElement | null = null;
+function appRoot(): HTMLElement | null {
+  rootElement ??= document.getElementById('root');
+  return rootElement;
+}
 
 function requestZoom(detail: FitZoomDetail): void {
   window.dispatchEvent(new CustomEvent<FitZoomDetail>(FIT_ZOOM_EVENT, { detail }));
 }
 
-/** Fit the office to the space its canvas has in the floating window. */
-function fitOffice(root: HTMLElement): void {
-  const rect = root.querySelector('canvas')?.getBoundingClientRect();
+/** Fit the office to the space its canvas has, wherever the app lives now. */
+export function fitOffice(remember = false): void {
+  const rect = appRoot()?.querySelector('canvas')?.getBoundingClientRect();
   if (rect && rect.width > 0 && rect.height > 0) {
-    requestZoom({ width: rect.width, height: rect.height });
+    requestZoom({ width: rect.width, height: rect.height, remember });
   }
 }
 
@@ -129,9 +134,15 @@ function copyStyles(target: Document): void {
   target.documentElement.style.colorScheme = 'dark';
 }
 
-async function openPictureInPicture(controller: PipController, root: HTMLElement): Promise<void> {
-  const home = root.parentElement;
-  if (!home) return;
+/** Move the app into a floating window; `onClose` runs when it comes back. */
+export async function openPictureInPicture(onClose: () => void): Promise<void> {
+  const controller = pipController();
+  const root = appRoot();
+  const home = root?.parentElement;
+  if (!controller || !root || !home) {
+    onClose();
+    return;
+  }
   const pip = await controller.requestWindow({ width: PIP_WIDTH, height: PIP_HEIGHT });
   copyStyles(pip.document);
   pip.document.title = document.title;
@@ -155,16 +166,16 @@ async function openPictureInPicture(controller: PipController, root: HTMLElement
   // Code that listens for the opener's `resize` hears the new window's too.
   pip.addEventListener('resize', () => {
     window.dispatchEvent(new Event('resize'));
-    fitOffice(root);
+    fitOffice(true);
   });
   window.dispatchEvent(new Event('resize'));
-  fitOffice(root);
+  fitOffice(true);
   // The copied stylesheets load after this point, and the layout only settles
   // then: fit again once each has arrived.
   for (const link of pip.document.querySelectorAll('link[rel="stylesheet"]')) {
-    link.addEventListener('load', () => fitOffice(root), { once: true });
+    link.addEventListener('load', () => fitOffice(true), { once: true });
   }
-  pip.setTimeout(() => fitOffice(root), 500);
+  pip.setTimeout(() => fitOffice(true), 500);
 
   pip.addEventListener(
     'pagehide',
@@ -175,63 +186,13 @@ async function openPictureInPicture(controller: PipController, root: HTMLElement
       placeholder.remove();
       if (openerObserver) moveObservers(openerObserver);
       requestZoom({ restore: true });
+      onClose();
       window.dispatchEvent(new Event('resize'));
     },
     { once: true },
   );
 }
 
-const BUTTON_STYLE = [
-  'padding:4px 10px',
-  'font:inherit',
-  'cursor:pointer',
-  'color:var(--pixel-text, inherit)',
-  'background:var(--pixel-bg, transparent)',
-  'border:2px solid var(--pixel-border, currentColor)',
-  'box-shadow:var(--pixel-shadow, none)',
-  'border-radius:0',
-].join(';');
-
-function makeButton(label: string, title: string, onClick: () => void): HTMLButtonElement {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.textContent = label;
-  button.title = title;
-  button.style.cssText = BUTTON_STYLE;
-  button.addEventListener('click', onClick);
-  return button;
-}
-
-/**
- * Add the viewer's own buttons: "Enquadrar" (fit and centre the office) always,
- * "PiP" when this browser can do it. Safe to call more than once.
- */
-export function installPictureInPictureButton(): void {
-  const root = document.getElementById('root');
-  if (!root || document.getElementById(BUTTON_ID)) return;
-
-  const bar = document.createElement('div');
-  bar.id = BUTTON_ID;
-  // Bottom-left: the right edge is the agent cards' column, the top-left the
-  // zoom buttons, the bottom-right the music player. A read-only office has no
-  // toolbar there.
-  bar.style.cssText =
-    'position:fixed;bottom:8px;left:8px;z-index:2147483000;display:flex;gap:6px';
-  bar.appendChild(
-    makeButton('Enquadrar', 'Ajustar o zoom e centralizar o escritório inteiro', () =>
-      fitOffice(root),
-    ),
-  );
-  const controller = pipController();
-  if (controller) {
-    bar.appendChild(
-      makeButton('PiP', 'Abrir o escritório numa janela flutuante, sempre por cima', () => {
-        void openPictureInPicture(controller, root).catch((err: unknown) => {
-          console.error('[Pixel Agents] picture-in-picture failed:', err);
-        });
-      }),
-    );
-  }
-  // On the page, not inside #root: it must stay behind when the app moves out.
-  document.body.appendChild(bar);
+export function canPictureInPicture(): boolean {
+  return pipController() !== null;
 }

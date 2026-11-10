@@ -77,6 +77,7 @@ import type {
   RotateButtonBounds,
 } from './selectionButtons.js';
 import { buttonGeometry, placeSelectionButtons, restingBounds } from './selectionButtons.js';
+import { canvasDpr } from '../../viewScale.js';
 
 // ── Settings ────────────────────────────────────────────────────
 
@@ -732,7 +733,7 @@ function renderSelectionButtons(
 ): { deleteButton: DeleteButtonBounds; rotateButton: RotateButtonBounds | null } {
   const stateOf = (b: SelectionButton) =>
     pressed === b ? 'pressed' : hovered === b && pressed === null ? 'hover' : 'idle';
-  const geometry = buttonGeometry(window.devicePixelRatio || 1);
+  const geometry = buttonGeometry(canvasDpr());
   const spots = placeSelectionButtons(placement, geometry);
   const deleteButton = renderSelectionButton(
     ctx,

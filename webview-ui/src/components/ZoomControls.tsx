@@ -5,11 +5,11 @@ import {
   ZOOM_LEVEL_FADE_DURATION_SEC,
   ZOOM_LEVEL_HIDE_DELAY_MS,
   ZOOM_MAX,
-  ZOOM_MIN,
 } from '../constants.js';
 import { Button } from './ui/Button.js';
 import { PixelIcon } from './ui/PixelIcon.js';
 import { PixelText } from './ui/PixelText.js';
+import { FINE_ZOOM_MIN, ZOOM_STEP } from '../viewScale.js';
 
 interface ZoomControlsProps {
   zoom: number;
@@ -93,7 +93,7 @@ export function ZoomControls({ zoom, onZoomChange, sidebar }: ZoomControlsProps)
   // Bumped per toggle: remounts the icon so its pop plays (never on first paint).
   const [toggles, setToggles] = useState(0);
 
-  const minDisabled = zoom <= ZOOM_MIN;
+  const minDisabled = zoom <= FINE_ZOOM_MIN;
   const maxDisabled = zoom >= ZOOM_MAX;
   const levelShown = hovered || (flash.visible && !flash.fading);
 
@@ -127,7 +127,7 @@ export function ZoomControls({ zoom, onZoomChange, sidebar }: ZoomControlsProps)
         >
           <Button
             size="icon_lg"
-            onClick={() => onZoomChange(zoom + 1)}
+            onClick={() => onZoomChange(zoom + ZOOM_STEP)}
             disabled={maxDisabled}
             className="border-border! shadow-pixel disabled:hover:bg-btn-bg disabled:cursor-default disabled:opacity-(--btn-disabled-opacity)"
             title="Zoom in (Ctrl+Scroll)"
@@ -136,7 +136,7 @@ export function ZoomControls({ zoom, onZoomChange, sidebar }: ZoomControlsProps)
           </Button>
           <Button
             size="icon_lg"
-            onClick={() => onZoomChange(zoom - 1)}
+            onClick={() => onZoomChange(zoom - ZOOM_STEP)}
             disabled={minDisabled}
             className="border-border! shadow-pixel disabled:hover:bg-btn-bg disabled:cursor-default disabled:opacity-(--btn-disabled-opacity)"
             title="Zoom out (Ctrl+Scroll)"

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { ColorValue } from '../components/ui/types.js';
 import {
@@ -7,7 +7,6 @@ import {
   LAYOUT_SAVE_DEBOUNCE_MS,
   TILE_SIZE,
   ZOOM_DEFAULT_DPR_FACTOR,
-  ZOOM_MAX,
   ZOOM_MIN,
 } from '../constants.js';
 import type { ExpandDirection } from '../office/editor/editorActions.js';
@@ -48,6 +47,7 @@ import { EditTool } from '../office/types.js';
 import { TileType } from '../office/types.js';
 import { FIT_ZOOM_EVENT, type FitZoomDetail } from '../pictureInPicture.js';
 import { transport } from '../transport/index.js';
+import { applyFineZoom, clampFineZoom, engineZoom, floorFineZoom, ZOOM_STEP } from '../viewScale.js';
 import type { FurnitureColorActions } from './useFurnitureColorActions.js';
 import { useFurnitureColorActions } from './useFurnitureColorActions.js';
 
@@ -76,6 +76,10 @@ interface EditorActions extends Omit<FurnitureColorActions, 'pickColorAt'> {
   handleReset: () => void;
   handleSave: () => void;
   handleZoomChange: (zoom: number) => void;
+  /** pixel-agents-secure (local): the zoom in steps of 0.2 (`zoom` is the
+   *  integer the engine draws at), and its setter. */
+  fineZoom: number;
+  handleFineZoomChange: (zoom: number) => void;
   handleEditorTileAction: (col: number, row: number) => void;
   handleEditorEraseAction: (col: number, row: number) => void;
   handleEditorSelectionChange: () => void;
@@ -116,7 +120,8 @@ export function useEditorActions(
   const [isEditMode, setIsEditMode] = useState(false);
   const [editorTick, setEditorTick] = useState(0);
   const [isDirty, setIsDirty] = useState(false);
-  const [zoom, setZoom] = useState(defaultZoom);
+  const [fineZoom, setFineZoom] = useState(defaultZoom);
+  const zoom = engineZoom(fineZoom);
   const [carpetVariant, setCarpetVariantState] = useState<number>(editorState.carpetVariant);
   const [carpetColor, setCarpetColorState] = useState<ColorValue>(editorState.carpetColor);
   const [carpetAccentColor, setCarpetAccentColorState] = useState<ColorValue>(
@@ -136,22 +141,22 @@ export function useEditorActions(
     const onFit = (event: Event): void => {
       const detail = (event as CustomEvent<FitZoomDetail>).detail;
       if (detail.restore) {
-        if (zoomBeforeFitRef.current !== null) setZoom(zoomBeforeFitRef.current);
+        if (zoomBeforeFitRef.current !== null) setFineZoom(zoomBeforeFitRef.current);
         zoomBeforeFitRef.current = null;
         panRef.current = { x: 0, y: 0 };
         return;
       }
       const layout = getOfficeState().getLayout();
       const dpr = window.devicePixelRatio || 1;
-      const fit = Math.floor(
+      const fit = floorFineZoom(
         Math.min(
           (detail.width * dpr) / (layout.cols * TILE_SIZE),
           (detail.height * dpr) / (layout.rows * TILE_SIZE),
         ),
       );
-      setZoom((current) => {
-        zoomBeforeFitRef.current ??= current;
-        return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, fit));
+      setFineZoom((current) => {
+        if (detail.remember) zoomBeforeFitRef.current ??= current;
+        return fit;
       });
       panRef.current = { x: 0, y: 0 };
     };
@@ -543,9 +548,26 @@ export function useEditorActions(
   // Notify React that imperative editor selection changed (e.g., from OfficeCanvas mouseUp)
   const handleEditorSelectionChange = bumpTick;
 
+  // pixel-agents-secure (local): the canvas (wheel, pinch) speaks the engine's
+  // integer zoom; what it asks for is read as a direction, one 0.2 step.
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
   const handleZoomChange = useCallback((newZoom: number) => {
-    setZoom(Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, newZoom)));
+    const direction = Math.sign(newZoom - zoomRef.current);
+    if (direction !== 0) setFineZoom((current) => clampFineZoom(current + direction * ZOOM_STEP));
   }, []);
+  const handleFineZoomChange = useCallback((next: number) => {
+    setFineZoom(clampFineZoom(next));
+  }, []);
+  // Before paint, so the canvas never shows the new zoom at the old scale. The
+  // pan is in canvas pixels: rescaled, the office stays where it was on screen.
+  useLayoutEffect(() => {
+    const { previous, current } = applyFineZoom(fineZoom);
+    if (previous !== current) {
+      const ratio = current / previous;
+      panRef.current = { x: panRef.current.x * ratio, y: panRef.current.y * ratio };
+    }
+  }, [fineZoom]);
 
   /**
    * A furniture drag released at (col,row): validate, commit, and settle the
@@ -808,6 +830,8 @@ export function useEditorActions(
     handleReset,
     handleSave,
     handleZoomChange,
+    fineZoom,
+    handleFineZoomChange,
     handleEditorTileAction,
     handleEditorEraseAction,
     handleEditorSelectionChange,

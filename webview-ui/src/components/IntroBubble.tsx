@@ -16,6 +16,7 @@ import { useUsageBridge } from '../usage/useUsageBridge.js';
 import { DiscordIcon } from './ChangelogModal.js';
 import { computeIntroBubbleGeometry } from './introBubbleGeometry.js';
 import { Button } from './ui/Button.js';
+import { canvasDpr } from '../viewScale.js';
 
 interface IntroBubbleProps {
   officeState: OfficeState;
@@ -183,7 +184,7 @@ export function IntroBubble({
             containerRect: container.getBoundingClientRect(),
             zoom,
             pan: panRef.current,
-            dpr: window.devicePixelRatio || 1,
+            dpr: canvasDpr(),
             greeter: ch,
             bubbleWidth: bubble.offsetWidth,
             bubbleHeight: bubble.offsetHeight,
@@ -233,7 +234,7 @@ export function IntroBubble({
       containerRect: rect,
       zoom,
       pan: panRef.current,
-      dpr: window.devicePixelRatio || 1,
+      dpr: canvasDpr(),
       greeter,
       bubbleWidth: bw,
       bubbleHeight: bh,

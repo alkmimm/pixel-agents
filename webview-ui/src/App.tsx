@@ -55,6 +55,8 @@ import { installTestHooks } from './testHooks.js';
 import { transport } from './transport/index.js';
 import { UsageBars } from './usage/UsageBars.js';
 import { useUsageBridge } from './usage/useUsageBridge.js';
+import { ViewerBar, useViewerPrefs } from './ViewerBar.js';
+import { canvasDpr } from './viewScale.js';
 
 // Game state lives outside React — updated imperatively by message handlers
 const officeStateRef = { current: null as OfficeState | null };
@@ -232,6 +234,26 @@ function App() {
     setAlwaysShowOverlay(alwaysShowLabels);
   }, [alwaysShowLabels]);
 
+  // pixel-agents-secure (local): in a read-only office the display options are
+  // this browser's own (ViewerBar.tsx) and win over the server's settings.
+  // Nothing is sent to the server.
+  const [viewerPrefs, toggleViewerPref] = useViewerPrefs();
+  useEffect(() => {
+    if (!officeReadOnly) return;
+    if (alwaysShowOverlay !== viewerPrefs.labels) setAlwaysShowOverlay(viewerPrefs.labels);
+    if (showAreas !== viewerPrefs.areas) setShowAreas(viewerPrefs.areas);
+    if (ghostHeadlessAgents !== viewerPrefs.ghosts) setGhostHeadlessAgents(viewerPrefs.ghosts);
+  }, [
+    officeReadOnly,
+    viewerPrefs,
+    alwaysShowLabels,
+    alwaysShowOverlay,
+    showAreas,
+    ghostHeadlessAgents,
+    setShowAreas,
+    setGhostHeadlessAgents,
+  ]);
+
   const directoryEditor = useDirectoryEditor({
     directories,
     directoryRejection,
@@ -338,7 +360,7 @@ function App() {
         canvas.getBoundingClientRect(),
         editor.zoom,
         editor.panRef.current,
-        window.devicePixelRatio || 1,
+        canvasDpr(),
       );
       return {
         x: projection.toScreenX((col + 0.5) * TILE_SIZE),
@@ -567,8 +589,8 @@ function App() {
             <MobileZoomLevel zoom={editor.zoom} />
           ) : (
             <ZoomControls
-              zoom={editor.zoom}
-              onZoomChange={editor.handleZoomChange}
+              zoom={editor.fineZoom}
+              onZoomChange={editor.handleFineZoomChange}
               sidebar={hasSidebar ? { open: sidebar.open, onToggle: sidebar.toggle } : undefined}
             />
           )}
@@ -657,7 +679,10 @@ function App() {
               among themselves (OVERLAY_*_Z_INDEX) inside this box, which sits
               at z 0 — so every piece of UI over the office (zoom buttons,
               toolbar, cards, editor panels) always draws above them. */}
-          <div className="absolute inset-0 z-0 pointer-events-none">
+          <div
+            className="absolute inset-0 z-0 pointer-events-none"
+            style={officeReadOnly && !viewerPrefs.overlay ? { display: 'none' } : undefined}
+          >
             <ToolOverlay
               officeState={officeState}
               agents={agents}
@@ -713,6 +738,8 @@ function App() {
         </Tooltip>
       )}
 
+      {officeReadOnly && !isMobile && <ViewerBar prefs={viewerPrefs} onToggle={toggleViewerPref} />}
+
       {officeReadOnly && (
         <div className="absolute mobile-safe-top left-1/2 -translate-x-1/2 z-10 text-sm text-text-muted pointer-events-none select-none whitespace-nowrap">
           View only
@@ -750,7 +777,7 @@ function App() {
       )}
 
       {/* The office radio: bottom-right, centred on a phone (the version label sits above it). */}
-      {!isDebugMode && <MusicPlayer mobile={isMobile} />}
+      {!isDebugMode && (!officeReadOnly || viewerPrefs.music) && <MusicPlayer mobile={isMobile} />}
 
       <VersionIndicator
         currentVersion={extensionVersion}

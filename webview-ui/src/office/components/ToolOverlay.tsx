@@ -27,6 +27,7 @@ import { getCachedSprite } from '../sprites/spriteCache.js';
 import { BUBBLE_PERMISSION_SPRITE, BUBBLE_WAITING_SPRITE } from '../sprites/spriteData.js';
 import type { ToolActivity } from '../types.js';
 import { CharacterState } from '../types.js';
+import { canvasDpr } from '../../viewScale.js';
 
 // Both turn-end states show the green checkmark bubble. A finished turn (Stop)
 // shows ONLY the checkmark (the label falls through to its normal idle text);
@@ -126,7 +127,7 @@ export function ToolOverlay({
   const el = containerRef.current;
   if (!el) return null;
   // dpr is also needed to size the bubble canvases in CSS px (OverlayBubble).
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = canvasDpr();
   const project = overlayProjection(
     officeState.getLayout(),
     el.getBoundingClientRect(),
