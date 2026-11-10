@@ -24,6 +24,7 @@ import {
 } from './constants.js';
 import { applyReportedContext } from './contextUsage.js';
 import { hookProviderById } from './providers/index.js';
+import { maskToolLabels } from './secretMask.js';
 import { isRecord } from './serverConfig.js';
 import { registerTerminalRoutes } from './terminal/terminalRoutes.js';
 import type { TerminalSessions } from './terminal/terminalSessions.js';
@@ -338,6 +339,11 @@ function registerWebSocketRoute(
     }
 
     const { store } = options;
+    // pixel-agents-secure: a viewer (read-only) client gets tool labels masked
+    // like its activity history and conversation (secretMask.ts).
+    const deliver = options.readOnly
+      ? (message: Record<string, unknown>) => safeSend(socket, maskToolLabels(message))
+      : (message: Record<string, unknown>) => safeSend(socket, message);
 
     // Pipe store events to WebSocket client
     const onAgentAdded = (id: number, agent: AgentState) => {
@@ -351,7 +357,7 @@ function registerWebSocketRoute(
     const onBroadcast = (message: Record<string, unknown>) => {
       // The operator's account usage is not for read-only viewers.
       if (!privileged && PRIVILEGED_BROADCAST_TYPES.has(String(message.type))) return;
-      safeSend(socket, message);
+      deliver(message);
     };
 
     store.on('agentAdded', onAgentAdded);
@@ -365,7 +371,7 @@ function registerWebSocketRoute(
         if (!options.embedded && msg.type) {
           console.log('[Pixel Agents] WS client message:', msg.type);
         }
-        handleClientMessage(msg, (m) => safeSend(socket, m), {
+        handleClientMessage(msg, deliver, {
           store,
           runtime: options.runtime,
           cache: options.assetCache ?? null,

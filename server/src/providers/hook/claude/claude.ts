@@ -31,7 +31,10 @@ import { isInheritedClaudeSessionEnv } from './sessionEnv.js';
 
 export function formatToolStatus(toolName: string, input?: unknown): string {
   const inp = (input ?? {}) as Record<string, unknown>;
-  const base = (p: unknown) => (typeof p === 'string' ? path.basename(p) : '');
+  // pixel-agents-secure: the last segment on either separator. path.basename
+  // on Linux keeps a Windows path whole (sessions read from /mnt/c, H16), and
+  // the label would carry the full path and the Windows user name.
+  const base = (p: unknown) => (typeof p === 'string' ? (p.split(/[\\/]/).pop() ?? '') : '');
   switch (toolName) {
     case 'Read':
       return `Reading ${base(inp.file_path)}`;

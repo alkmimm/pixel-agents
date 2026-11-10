@@ -14,6 +14,7 @@
 import * as fs from 'node:fs';
 
 import type { AgentStateStore } from './agentStateStore.js';
+import { redactSecrets } from './secretMask.js';
 import type { AgentState } from './types.js';
 
 /** Entries kept per agent: about an hour of steady tool use. */
@@ -22,10 +23,15 @@ export const ACTIVITY_MAX_ENTRIES = 300;
 const PROJECT_HEAD_BYTES = 64 * 1024;
 /** A transcript whose head names no directory yet is asked again after this. */
 const PROJECT_RETRY_MS = 30_000;
-/** Two identical tool labels this close together are one tool seen twice (hook
- *  and transcript both report it, under different ids). */
+/** A hook-reported tool and the same tool read from the transcript carry
+ *  different ids ("hook-<time>" vs the transcript's own): the same label from
+ *  the OTHER source this close together is one tool seen twice. Two calls from
+ *  the same source are always two entries. */
 const DUPLICATE_WINDOW_MS = 2_000;
 const MAX_LABEL_LENGTH = 200;
+/** Tool ids remembered per agent, so a re-announced tool (background spawns
+ *  are re-sent at every turn) is not a new entry. */
+const MAX_SEEN_TOOL_IDS = 500;
 
 export type ActivityKind =
   | 'joined' // the agent appeared in the office
@@ -37,6 +43,8 @@ export type ActivityKind =
   | 'input'; // waiting for the user's next message
 
 export interface ActivityEntry {
+  /** Sequence number within the agent's history (a stable list key). */
+  n: number;
   /** Server clock, ms since epoch. */
   t: number;
   k: ActivityKind;
@@ -52,6 +60,9 @@ export interface AgentActivity {
 
 interface Track {
   entries: ActivityEntry[];
+  next: number;
+  seenToolIds: Set<string>;
+  seenOrder: string[];
   /** Last turn state recorded, so a stream of 'active' records is one entry. */
   state?: 'turn' | 'done' | 'input';
   project?: string;
@@ -59,9 +70,15 @@ interface Track {
   projectPending?: boolean;
 }
 
+/** A label as stored and sent: cut, then masked like the conversation. */
 function label(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length === 0) return undefined;
-  return value.length > MAX_LABEL_LENGTH ? value.slice(0, MAX_LABEL_LENGTH) + '…' : value;
+  const cut = value.length > MAX_LABEL_LENGTH ? value.slice(0, MAX_LABEL_LENGTH) + '…' : value;
+  return redactSecrets(cut);
+}
+
+function fromHook(toolId: string | undefined): boolean {
+  return toolId?.startsWith('hook-') === true;
 }
 
 /** The last segment of a POSIX or Windows path. */
@@ -143,27 +160,37 @@ export class ActivityLog {
   private track(id: number): Track {
     let track = this.tracks.get(id);
     if (!track) {
-      track = { entries: [] };
+      track = { entries: [], next: 1, seenToolIds: new Set(), seenOrder: [] };
       this.tracks.set(id, track);
     }
     return track;
   }
 
-  private push(id: number, entry: Omit<ActivityEntry, 't'>): void {
+  private push(id: number, entry: Omit<ActivityEntry, 't' | 'n'>): void {
     if (!this.store.has(id)) return;
     const track = this.track(id);
-    const full: ActivityEntry = { t: this.now(), ...entry };
+    const t = this.now();
     if (entry.k === 'tool' || entry.k === 'subtool') {
+      if (entry.toolId !== undefined) {
+        if (track.seenToolIds.has(entry.toolId)) return;
+        track.seenToolIds.add(entry.toolId);
+        track.seenOrder.push(entry.toolId);
+        if (track.seenOrder.length > MAX_SEEN_TOOL_IDS) {
+          track.seenToolIds.delete(track.seenOrder.shift() as string);
+        }
+      }
       const last = track.entries[track.entries.length - 1];
       if (
         last &&
         last.k === entry.k &&
         last.label === entry.label &&
-        full.t - last.t < DUPLICATE_WINDOW_MS
+        fromHook(last.toolId) !== fromHook(entry.toolId) &&
+        t - last.t < DUPLICATE_WINDOW_MS
       ) {
         return;
       }
     }
+    const full: ActivityEntry = { n: track.next++, t, ...entry };
     track.entries.push(full);
     if (track.entries.length > this.max) track.entries.splice(0, track.entries.length - this.max);
     this.store.broadcast({ type: 'agentActivity', id, entry: full });

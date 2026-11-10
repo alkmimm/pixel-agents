@@ -5,29 +5,38 @@
  * conversa on), and never offered by the VS Code extension.
  *
  * What leaves the server, and nothing else:
- * - the user's own prompts and the assistant's text replies;
+ * - the user's own prompts and the assistant's text replies, with every
+ *   harness block (<system-reminder>, <ide_selection>, <bash-stdout>, ...)
+ *   taken out, mixed with text or not;
  * - for each tool call, the same short label the office already shows
- *   (formatToolStatus: file basename, a cut Bash command, a subtask title).
+ *   (formatToolStatus: file name, a cut Bash command, a subtask title).
  * Never sent: tool inputs and outputs (file contents, command output), the
  * model's thinking, harness/meta records, subagent side chains.
  *
  * Bounded: only the transcript's last CONVERSATION_TAIL_BYTES are read, at
  * most CONVERSATION_MAX_ENTRIES entries of at most CONVERSATION_MAX_TEXT
- * characters each. The file is the agent's own transcript as the server
- * tracks it: a client names an agent id, never a path.
+ * characters each, and every pass over the text is linear (a crafted prompt
+ * cannot stall the event loop). One read per file at a time, at most one per
+ * CONVERSATION_MIN_REREAD_MS. The file is the agent's own transcript as the
+ * server tracks it, and only under a Claude transcript root: a client names
+ * an agent id, never a path.
  *
- * Secrets that look like secrets are masked (redactSecrets), best effort: a
+ * Secrets that look like secrets are masked (secretMask.ts), best effort: a
  * prompt with a pasted password in plain words is shown as written.
  */
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 import type { AgentStateStore } from './agentStateStore.js';
-import { formatToolStatus } from './providers/hook/claude/claude.js';
+import { claudeProvider, formatToolStatus } from './providers/hook/claude/claude.js';
+import { maskAndClip } from './secretMask.js';
 
 export const CONVERSATION_TAIL_BYTES = 1024 * 1024;
 export const CONVERSATION_MAX_ENTRIES = 150;
 export const CONVERSATION_MAX_TEXT = 4000;
+export const CONVERSATION_MIN_REREAD_MS = 1_000;
 const CACHE_SIZE = 16;
+const MAX_VERSION_LENGTH = 64;
 
 export interface ConversationEntry {
   /** ms since epoch, from the record's timestamp when it has one. */
@@ -42,58 +51,79 @@ export interface ConversationTail {
   truncated: boolean;
 }
 
-// ── Redaction ──────────────────────────────────────────────────
+// ── Harness blocks ─────────────────────────────────────────────
 
-const REDACTED = '<redacted>';
+/** One tag, open or close. The name allows `_` (<ide_selection>) and the
+ *  attributes are bounded, so a scan of the whole text stays linear. */
+const TAG = /<(\/?)([a-z][a-z0-9_-]{0,63})(?:\s[^<>]{0,256})?>/g;
 
-const SECRET_PATTERNS: Array<[RegExp, string]> = [
-  [
-    /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/g,
-    REDACTED,
-  ],
-  [/\bsk-ant-[A-Za-z0-9_-]{10,}/g, REDACTED],
-  [/\bsk-[A-Za-z0-9_-]{20,}/g, REDACTED],
-  [/\bgh[pousr]_[A-Za-z0-9]{20,}/g, REDACTED],
-  [/\bgithub_pat_[A-Za-z0-9_]{20,}/g, REDACTED],
-  [/\bglpat-[A-Za-z0-9_-]{20,}/g, REDACTED],
-  [/\bxox[abposr]-[A-Za-z0-9-]{10,}/g, REDACTED],
-  [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, REDACTED],
-  [/\bAIza[0-9A-Za-z_-]{35}\b/g, REDACTED],
-  [/\bnpm_[A-Za-z0-9]{36}\b/g, REDACTED],
-  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, REDACTED],
-  // Authorization values (the lookahead wants a digit, so prose is left alone)
-  [/\b(Bearer|Basic)\s+(?=[A-Za-z._~+/=-]*[0-9])[A-Za-z0-9._~+/=-]{12,}/gi, `$1 ${REDACTED}`],
-  // user:password@ in a URL
-  [/(\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+):[^\s@/]+@/gi, `$1:${REDACTED}@`],
-  // name=value / name: value where the name says it is a secret
-  [
-    /\b([A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret)[A-Za-z0-9_.-]*)(["']?\s*[:=]\s*)(["']?)[^\s"',;]{4,}/gi,
-    `$1$2$3${REDACTED}`,
-  ],
-];
+/** Tags whose blocks vanish without a trace; any other block leaves a marker. */
+const SILENT_TAGS = new Set(['system-reminder']);
 
-/** Mask what looks like a credential. Best effort, by pattern. */
-export function redactSecrets(text: string): string {
-  let out = text;
-  for (const [pattern, replacement] of SECRET_PATTERNS) out = out.replace(pattern, replacement);
-  return out;
+interface TagRange {
+  name: string;
+  start: number;
+  end: number;
+  innerStart: number;
+  innerEnd: number;
+}
+
+/** The outermost `<name ...>...</name>` blocks of a text, in one pass: each
+ *  closing tag pairs with the latest unpaired opening tag of the same name. */
+export function harnessBlocks(text: string): TagRange[] {
+  const open = new Map<string, Array<{ start: number; innerStart: number }>>();
+  const found: TagRange[] = [];
+  for (const m of text.matchAll(TAG)) {
+    const [whole, slash, name] = m;
+    const at = m.index ?? 0;
+    if (!slash) {
+      const stack = open.get(name) ?? [];
+      stack.push({ start: at, innerStart: at + whole.length });
+      open.set(name, stack);
+      continue;
+    }
+    const opening = open.get(name)?.pop();
+    if (opening) {
+      found.push({ name, ...opening, end: at + whole.length, innerEnd: at });
+    }
+  }
+  found.sort((a, b) => a.start - b.start || b.end - a.end);
+  const outer: TagRange[] = [];
+  for (const range of found) {
+    const last = outer[outer.length - 1];
+    if (!last || range.start >= last.end) outer.push(range);
+  }
+  return outer;
+}
+
+/** A user message with every harness block taken out. `null` when nothing the
+ *  user wrote is left (a slash command shows as typed: "/model opus"). */
+export function withoutHarness(text: string): string | null {
+  const ranges = harnessBlocks(text);
+  if (ranges.length === 0) return text.trim() || null;
+  let shown = '';
+  let written = '';
+  let cursor = 0;
+  let command: string | undefined;
+  let args = '';
+  for (const range of ranges) {
+    shown += text.slice(cursor, range.start);
+    written += text.slice(cursor, range.start);
+    if (!SILENT_TAGS.has(range.name)) shown += `[${range.name} omitido]`;
+    if (range.name === 'command-name') command = text.slice(range.innerStart, range.innerEnd).trim();
+    if (range.name === 'command-args') args = text.slice(range.innerStart, range.innerEnd).trim();
+    cursor = range.end;
+  }
+  shown += text.slice(cursor);
+  written += text.slice(cursor);
+  if (!written.trim()) return command ? `${command} ${args}`.trim() : null;
+  return shown.trim();
 }
 
 // ── Records → entries ──────────────────────────────────────────
 
-/** Harness tags (<command-name>, <system-reminder>, <local-command-stdout>,
- *  <task-notification>...). A message made only of them is not something the
- *  user wrote. */
-const TAG_BLOCK = /<([a-z][a-z0-9-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1>/g;
-const SYSTEM_REMINDER = /<system-reminder>[\s\S]*?<\/system-reminder>/g;
-const COMMAND_NAME = /<command-name>([\s\S]*?)<\/command-name>/;
-const COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/;
-
 function clip(text: string): string {
-  const masked = redactSecrets(text.trim());
-  return masked.length > CONVERSATION_MAX_TEXT
-    ? masked.slice(0, CONVERSATION_MAX_TEXT) + '…'
-    : masked;
+  return maskAndClip(text.trim(), CONVERSATION_MAX_TEXT);
 }
 
 function timeOf(record: Record<string, unknown>): number | undefined {
@@ -118,15 +148,9 @@ function userText(content: unknown): string | null {
   } else {
     return null;
   }
-  text = text.replace(SYSTEM_REMINDER, '').trim();
-  if (!text || text.startsWith('Caveat:')) return null;
-  if (text.replace(TAG_BLOCK, '').trim() === '') {
-    // Only harness tags: a slash command shows as typed, anything else not at all.
-    const name = COMMAND_NAME.exec(text)?.[1]?.trim();
-    if (!name) return null;
-    return `${name} ${COMMAND_ARGS.exec(text)?.[1]?.trim() ?? ''}`.trim();
-  }
-  return text;
+  const shown = withoutHarness(text);
+  if (!shown || shown.startsWith('Caveat:')) return null;
+  return shown;
 }
 
 /** The conversation entries one transcript record contributes. */
@@ -187,25 +211,36 @@ export function conversationFromText(text: string, startsMidFile: boolean): Conv
   };
 }
 
-// ── File reading (async, cached by size + mtime) ───────────────
+// ── File reading (async, shared, cached by size + mtime) ───────
 
-const cache = new Map<string, { size: number; mtimeMs: number; tail: ConversationTail }>();
+export interface VersionedTail extends ConversationTail {
+  /** Size and mtime of the file the entries were read from. */
+  version: string;
+}
 
-export async function readConversationTail(file: string): Promise<ConversationTail> {
+const cache = new Map<string, { version: string; at: number; tail: VersionedTail }>();
+const inFlight = new Map<string, Promise<VersionedTail>>();
+
+async function readFresh(file: string, now: number): Promise<VersionedTail> {
   const handle = await fs.promises.open(file, 'r');
   try {
     const stat = await handle.stat();
+    const version = `${stat.size}:${stat.mtimeMs}`;
     const cached = cache.get(file);
-    if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
+    if (cached && cached.version === version) {
+      cached.at = now;
       return cached.tail;
     }
     const start = Math.max(0, stat.size - CONVERSATION_TAIL_BYTES);
     const length = stat.size - start;
     const buffer = Buffer.alloc(length);
     const { bytesRead } = await handle.read(buffer, 0, length, start);
-    const tail = conversationFromText(buffer.subarray(0, bytesRead).toString('utf8'), start > 0);
+    const tail: VersionedTail = {
+      ...conversationFromText(buffer.subarray(0, bytesRead).toString('utf8'), start > 0),
+      version,
+    };
     cache.delete(file);
-    cache.set(file, { size: stat.size, mtimeMs: stat.mtimeMs, tail });
+    cache.set(file, { version, at: now, tail });
     while (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value as string);
     return tail;
   } finally {
@@ -213,15 +248,56 @@ export async function readConversationTail(file: string): Promise<ConversationTa
   }
 }
 
+/** The tail of a transcript. Requests for the same file share one read, and a
+ *  file read less than CONVERSATION_MIN_REREAD_MS ago is answered from memory:
+ *  however often a client asks, a file is parsed at most once a second. */
+export function readConversationTail(file: string, now = Date.now()): Promise<VersionedTail> {
+  const pending = inFlight.get(file);
+  if (pending) return pending;
+  const cached = cache.get(file);
+  if (cached && now - cached.at < CONVERSATION_MIN_REREAD_MS) return Promise.resolve(cached.tail);
+  const read = readFresh(file, now).finally(() => inFlight.delete(file));
+  inFlight.set(file, read);
+  return read;
+}
+
+/** Whether `file` is a .jsonl under one of the Claude transcript roots, with
+ *  links resolved. A transcript path adopted from elsewhere is not read. */
+export async function isUnderTranscriptRoot(file: string, roots: readonly string[]): Promise<boolean> {
+  if (path.extname(file) !== '.jsonl') return false;
+  let real: string;
+  try {
+    real = await fs.promises.realpath(file);
+  } catch {
+    return false;
+  }
+  for (const root of roots) {
+    try {
+      const realRoot = await fs.promises.realpath(root);
+      if (real.startsWith(realRoot + path.sep)) return true;
+    } catch {
+      // A root that does not exist holds nothing.
+    }
+  }
+  return false;
+}
+
+function transcriptRoots(): string[] {
+  return claudeProvider.getAllSessionRoots?.() ?? [];
+}
+
 /**
  * Answer a client's `requestAgentConversation`. The only message a read-only
- * client may send besides webviewReady, and only while `enabled`.
+ * client may send besides webviewReady, and only while `enabled`. A client
+ * that names the version it already has gets `unchanged: true` instead of
+ * the same entries again.
  */
 export async function answerConversationRequest(
   msg: Record<string, unknown>,
   send: (message: Record<string, unknown>) => void,
   store: AgentStateStore,
   enabled: boolean,
+  roots: () => readonly string[] = transcriptRoots,
 ): Promise<void> {
   const id = msg.id;
   if (typeof id !== 'number' || !Number.isInteger(id)) return;
@@ -234,17 +310,28 @@ export async function answerConversationRequest(
     send({ type: 'agentConversation', id, enabled: true, entries: [], truncated: false });
     return;
   }
+  const unreadable = {
+    type: 'agentConversation',
+    id,
+    enabled: true,
+    entries: [],
+    truncated: false,
+    unreadable: true,
+  };
   try {
+    if (!(await isUnderTranscriptRoot(file, roots()))) {
+      send(unreadable);
+      return;
+    }
     const tail = await readConversationTail(file);
+    const known =
+      typeof msg.version === 'string' && msg.version.length <= MAX_VERSION_LENGTH ? msg.version : null;
+    if (known === tail.version) {
+      send({ type: 'agentConversation', id, enabled: true, unchanged: true, version: tail.version });
+      return;
+    }
     send({ type: 'agentConversation', id, enabled: true, ...tail });
   } catch {
-    send({
-      type: 'agentConversation',
-      id,
-      enabled: true,
-      entries: [],
-      truncated: false,
-      unreadable: true,
-    });
+    send(unreadable);
   }
 }

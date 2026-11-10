@@ -8,7 +8,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const REPO_ROOT = path.join(__dirname, '../..');
 const rootPackage = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf-8')) as {
@@ -1206,7 +1206,10 @@ describe('H17: the viewer conversation view is opt-in, text-only and bounded', (
     const { PixelAgentsServer } = await import('../src/server.js');
     const { AgentStateStore } = await import('../src/agentStateStore.js');
     const { createAgentState } = await import('../src/agentState.js');
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-conv-'));
+    // Under the Claude transcript root: nothing else is read.
+    const projects = path.join(os.homedir(), '.claude', 'projects');
+    fs.mkdirSync(projects, { recursive: true });
+    const dir = fs.mkdtempSync(path.join(projects, 'pxl-conv-'));
     const transcript = path.join(dir, 'sessao.jsonl');
     fs.writeFileSync(transcript, line({ type: 'user', message: { content: 'PROMPT-DO-AGENTE' } }) + '\n');
     const other = path.join(dir, 'outro.jsonl');
@@ -1260,6 +1263,7 @@ describe('H17: the viewer conversation view is opt-in, text-only and bounded', (
     expect(JSON.stringify(seven)).toContain('PROMPT-DO-AGENTE');
     expect(JSON.stringify(on)).not.toContain('OUTRO-ARQUIVO');
     expect(on.find((m) => m.id === 99)).toMatchObject({ enabled: true, entries: [] });
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it('the read-only gate gained exactly this one exception, and the switch is the service environment', async () => {
@@ -1302,7 +1306,8 @@ describe('viewer activity history: only the labels the office already shows', ()
     store.broadcast({ type: 'agentStatus', id: 1, status: 'active' });
     store.broadcast({ type: 'agentStatus', id: 1, status: 'active' });
     store.broadcast({ type: 'agentToolStart', id: 1, toolId: 'a', status: 'Reading x.ts', toolName: 'Read', input: { file_path: '/segredo/x.ts' }, tool_input: 'CONTEUDO' });
-    store.broadcast({ type: 'agentToolStart', id: 1, toolId: 'a-hook', status: 'Reading x.ts' });
+    // The same tool from the hook (a "hook-" id) and from the transcript: one entry.
+    store.broadcast({ type: 'agentToolStart', id: 1, toolId: 'hook-1', status: 'Reading x.ts' });
     now += 5_000;
     store.broadcast({ type: 'agentToolPermission', id: 1 });
     store.broadcast({ type: 'agentStatus', id: 1, status: 'waiting', awaitingInput: true });
@@ -1311,7 +1316,7 @@ describe('viewer activity history: only the labels the office already shows', ()
     const [snap] = log.snapshot();
     expect(snap.entries.map((e) => e.k)).toEqual(['joined', 'turn', 'tool', 'permission', 'input']);
     for (const entry of snap.entries) {
-      expect(Object.keys(entry).every((k) => ['t', 'k', 'label', 'toolId'].includes(k))).toBe(true);
+      expect(Object.keys(entry).every((k) => ['n', 't', 'k', 'label', 'toolId'].includes(k))).toBe(true);
     }
     expect(JSON.stringify(snap)).not.toMatch(/segredo|CONTEUDO|Ghost/);
     expect(live.length).toBeGreaterThanOrEqual(5);
@@ -1333,6 +1338,170 @@ describe('viewer activity history: only the labels the office already shows', ()
 
     store.delete(1);
     expect(log.snapshot()).toEqual([]);
+    log.dispose();
+  });
+});
+
+describe('H17 (review fixes): harness blocks, linear time, files read, the gate', () => {
+  const userRecord = (content: unknown) => ({ type: 'user', message: { role: 'user', content } });
+
+  it('takes every harness block out, mixed with text or alone, names with "_" included', async () => {
+    const { entriesFromRecord } = await import('../src/viewerConversation.js');
+    const texts = (content: unknown) => entriesFromRecord(userRecord(content)).map((e) => e.text);
+    const mixed = texts([
+      { type: 'text', text: '<ide_selection>The user selected /x/.env:\nCONTEUDO_DO_ARQUIVO</ide_selection>' },
+      { type: 'text', text: 'corrige isso' },
+    ]);
+    expect(JSON.stringify(mixed)).not.toMatch(/CONTEUDO_DO_ARQUIVO|\/x\/\.env/);
+    expect(mixed[0]).toContain('corrige isso');
+    expect(mixed[0]).toContain('[ide_selection omitido]');
+    expect(texts('<ide_opened_file>The user opened /home/u/x.ts</ide_opened_file>')).toEqual([]);
+    const stdout = texts('<bash-stdout>SAIDA</bash-stdout> e mais texto');
+    expect(JSON.stringify(stdout)).not.toContain('SAIDA');
+    expect(stdout[0]).toContain('e mais texto');
+    // Nested and repeated blocks: the outermost goes, whole.
+    const nested = texts('a <outer>x <inner>SEGREDO</inner> y</outer> b <system-reminder>R</system-reminder>');
+    expect(nested).toEqual(['a [outer omitido] b']);
+  });
+
+  it('crafted text cannot stall the viewer: parsing and masking are linear', async () => {
+    const { entriesFromRecord } = await import('../src/viewerConversation.js');
+    const { redactSecrets } = await import('../src/secretMask.js');
+    const MB = 1024 * 1024;
+    const crafted = [
+      'token.'.repeat(MB / 6),
+      'a.'.repeat(MB / 2),
+      '<br>'.repeat(MB / 4),
+      '<system-reminder>'.repeat(MB / 17),
+      'eyJ-'.repeat(MB / 4),
+      '-----BEGIN RSA PRIVATE KEY-----'.repeat(MB / 31),
+      'http://a'.repeat(MB / 8),
+      `<x>${'a'.repeat(MB)}`,
+    ];
+    const started = Date.now();
+    for (const text of crafted) {
+      entriesFromRecord(userRecord(text));
+      entriesFromRecord({ type: 'assistant', message: { content: [{ type: 'text', text }] } });
+    }
+    // The worst case before the fix: 8 KB of "token." took about 8 s.
+    redactSecrets('token.'.repeat(8 * 1024 / 6));
+    expect(Date.now() - started).toBeLessThan(3_000);
+  });
+
+  it('reads only a .jsonl under a transcript root, and answers "unchanged" for a known version', async () => {
+    const os = await import('os');
+    const { answerConversationRequest, isUnderTranscriptRoot } = await import('../src/viewerConversation.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const { createAgentState } = await import('../src/agentState.js');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-root-'));
+    const away = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-away-'));
+    fs.mkdirSync(path.join(root, 'p'));
+    const inside = path.join(root, 'p', 's.jsonl');
+    const outside = path.join(away, 's.jsonl');
+    const link = path.join(root, 'p', 'link.jsonl');
+    fs.writeFileSync(inside, JSON.stringify(userRecord('DENTRO')) + '\n');
+    fs.writeFileSync(outside, JSON.stringify(userRecord('FORA')) + '\n');
+    fs.writeFileSync(path.join(root, 'p', 's.txt'), 'x');
+    fs.symlinkSync(outside, link);
+    try {
+      expect(await isUnderTranscriptRoot(inside, [root])).toBe(true);
+      expect(await isUnderTranscriptRoot(outside, [root])).toBe(false);
+      expect(await isUnderTranscriptRoot(link, [root])).toBe(false);
+      expect(await isUnderTranscriptRoot(path.join(root, 'p', 's.txt'), [root])).toBe(false);
+
+      const store = new AgentStateStore();
+      store.set(1, createAgentState({ id: 1, sessionId: 'a', projectDir: root, jsonlFile: inside, isExternal: true }));
+      store.set(2, createAgentState({ id: 2, sessionId: 'b', projectDir: away, jsonlFile: outside, isExternal: true }));
+      store.set(3, createAgentState({ id: 3, sessionId: 'c', projectDir: root, jsonlFile: link, isExternal: true }));
+      const sent: Array<Record<string, unknown>> = [];
+      const ask = (msg: Record<string, unknown>) =>
+        answerConversationRequest({ type: 'requestAgentConversation', ...msg }, (m) => sent.push(m), store, true, () => [root]);
+      await ask({ id: 1 });
+      expect(JSON.stringify(sent[0])).toContain('DENTRO');
+      const version = sent[0].version as string;
+      expect(typeof version).toBe('string');
+      await ask({ id: 1, version });
+      expect(sent[1]).toEqual({ type: 'agentConversation', id: 1, enabled: true, unchanged: true, version });
+      await ask({ id: 2 });
+      await ask({ id: 3 });
+      expect(sent[2]).toMatchObject({ id: 2, unreadable: true, entries: [] });
+      expect(sent[3]).toMatchObject({ id: 3, unreadable: true, entries: [] });
+      expect(JSON.stringify(sent)).not.toContain('FORA');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(away, { recursive: true, force: true });
+    }
+  });
+
+  it('a read-only client is refused every message type but webviewReady and requestAgentConversation', async () => {
+    // A fresh module: refusals are logged once per type per process.
+    vi.resetModules();
+    const { handleClientMessage } = await import('../src/clientMessageHandler.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const source = fs.readFileSync(path.join(REPO_ROOT, 'core/src/messages.ts'), 'utf-8');
+    const union = /export type ClientMessage =([^;]+);/.exec(source)![1];
+    const types = [...union.matchAll(/\|\s*(\w+)/g)].map(
+      (m) => new RegExp(`export interface ${m[1]} \\{\\s*type: '(\\w+)'`).exec(source)?.[1],
+    );
+    expect(types.length).toBeGreaterThan(20);
+    expect(types.every(Boolean)).toBe(true);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      for (const type of [...(types as string[]), 'requestAgentConversation']) {
+        if (type === 'webviewReady') continue;
+        const sent: Array<Record<string, unknown>> = [];
+        warn.mockClear();
+        handleClientMessage({ type, id: 1 }, (m) => sent.push(m), {
+          store: new AgentStateStore(),
+          cache: null,
+          privileged: false,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (type === 'requestAgentConversation') {
+          expect(warn).not.toHaveBeenCalled();
+          expect(sent).toEqual([{ type: 'agentConversation', id: 1, enabled: false, entries: [], truncated: false }]);
+        } else {
+          const refused = warn.mock.calls.some((c) => String(c[0]).includes(`Ignoring ${type} from a read-only client`));
+          expect(refused, `${type} was not refused`).toBe(true);
+        }
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('a Windows path in a tool label keeps only the file name (no user name, no folders)', async () => {
+    const { formatToolStatus } = await import('../src/providers/hook/claude/claude.js');
+    expect(formatToolStatus('Read', { file_path: 'C:\\Users\\alguem\\repos\\app\\segredo.ts' })).toBe('Reading segredo.ts');
+    expect(formatToolStatus('Edit', { file_path: '/home/u/repos/app/y.ts' })).toBe('Editing y.ts');
+  });
+
+  it('activity: a re-announced tool is one entry, repeats from one source are kept, labels are masked', async () => {
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const { createAgentState } = await import('../src/agentState.js');
+    const { ActivityLog } = await import('../src/activityLog.js');
+    const { maskToolLabels } = await import('../src/secretMask.js');
+    const store = new AgentStateStore();
+    const log = new ActivityLog(store);
+    store.set(1, createAgentState({ id: 1, sessionId: 's', projectDir: '/nao', jsonlFile: '', isExternal: true }));
+    store.broadcast({ type: 'agentToolStart', id: 1, toolId: 'x1', status: 'Subtask: build' });
+    store.broadcast({ type: 'agentToolStart', id: 1, toolId: 'x1', status: 'Subtask: build', runInBackground: true });
+    store.broadcast({ type: 'agentToolStart', id: 1, toolId: 'g1', status: 'Searching code' });
+    store.broadcast({ type: 'agentToolStart', id: 1, toolId: 'g2', status: 'Searching code' });
+    store.broadcast({ type: 'agentToolStart', id: 1, toolId: 't9', status: 'Running: export API_KEY=abcd1234efgh' });
+    const tools = log.snapshot()[0].entries.filter((e) => e.k === 'tool');
+    expect(tools.map((e) => e.label)).toEqual([
+      'Subtask: build',
+      'Searching code',
+      'Searching code',
+      'Running: export API_KEY=<redacted>',
+    ]);
+    expect(tools.map((e) => e.n)).toEqual([...tools.map((e) => e.n)].sort((a, b) => a - b));
+    // The live label a viewer receives is masked the same way.
+    expect(maskToolLabels({ type: 'agentToolStart', status: 'Running: TOKEN=abcd1234efgh' }).status).toBe(
+      'Running: TOKEN=<redacted>',
+    );
+    expect(maskToolLabels({ type: 'agentStatus', status: 'active' })).toEqual({ type: 'agentStatus', status: 'active' });
     log.dispose();
   });
 });
