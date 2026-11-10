@@ -26,7 +26,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onView:pixel-agents.panelView"
   ],
   "main": "./dist/extension.js",
   "files": [
@@ -75,12 +75,12 @@
         "pixel-agents.autoShowPanel": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically open and focus the Pixel Agents panel when VS Code starts."
+          "description": "No effect in this build: the extension starts only when the Pixel Agents panel is opened."
         },
         "pixel-agents.autoSpawnAgent": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically spawn a Claude Code agent when VS Code starts, if no agents are currently running."
+          "description": "Automatically spawn a Claude Code agent when the Pixel Agents panel is first opened, if no agents are currently running."
         }
       }
     }
