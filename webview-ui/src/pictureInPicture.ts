@@ -37,8 +37,10 @@ const liveObservers = new Set<RehomingResizeObserver>();
 class RehomingResizeObserver implements ResizeObserver {
   private inner: ResizeObserver;
   private readonly targets = new Map<Element, ResizeObserverOptions | undefined>();
+  private readonly callback: ResizeObserverCallback;
 
-  constructor(private readonly callback: ResizeObserverCallback) {
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
     this.inner = this.make();
   }
 
