@@ -154,30 +154,26 @@ const NO_SESSION_PAGE =
   '<h1>Sem sessão</h1><p>Abra o escritório pelo link de entrada: no terminal, ' +
   '<code>make office-open</code>.</p></body>';
 
-/** Routes that authenticate on their own (Bearer) or carry no data. */
-function isOpenPath(pathname: string): boolean {
-  return (
-    pathname === '/api/health' ||
-    pathname === LOGIN_CODE_PATH ||
-    pathname.startsWith(`${HOOK_API_PREFIX}/`) ||
-    pathname.startsWith(`${USAGE_API_PREFIX}/`)
-  );
-}
+const INGEST_ROUTE = new RegExp(`^(?:${HOOK_API_PREFIX}|${USAGE_API_PREFIX})/[a-z0-9-]+$`);
 
 /**
- * Install the viewer's access gate and headers. Call BEFORE registering the
- * plugins (static, websocket), so their routes inherit the hooks.
+ * The only requests that pass without a session: routes that authenticate on
+ * their own (Bearer) or carry no data. Matched by METHOD and EXACT path, on the
+ * raw path: anything else under those prefixes (a GET, an encoded `..%2f`)
+ * would otherwise fall through to the static handler and be served ungated.
  */
-export function registerViewerAccess(
-  app: FastifyInstance,
-  options: { token: string; sessions: ViewerSessions; port: () => number },
-): void {
-  const { sessions } = options;
+export function isOpenRequest(method: string, rawPath: string): boolean {
+  if (method === 'GET') return rawPath === '/api/health';
+  if (method === 'POST') return rawPath === LOGIN_CODE_PATH || INGEST_ROUTE.test(rawPath);
+  return false;
+}
 
-  app.addHook('onRequest', async (request, reply) => {
-    // H14, on every answer, refusals included.
+/** H14. Registered on its own, BEFORE every other hook, so even the answers of
+ *  earlier gates (the Host allowlist's 403) carry the headers. */
+export function registerViewerHeaders(app: FastifyInstance, port: () => number): void {
+  app.addHook('onRequest', async (_request, reply) => {
     void reply.headers({
-      'content-security-policy': viewerCsp(options.port()),
+      'content-security-policy': viewerCsp(port()),
       'x-content-type-options': 'nosniff',
       'x-frame-options': 'DENY',
       'referrer-policy': 'no-referrer',
@@ -185,27 +181,54 @@ export function registerViewerAccess(
       'cross-origin-resource-policy': 'same-origin',
       'cache-control': 'no-store',
     });
+  });
+}
 
-    const url = new URL(request.url, 'http://localhost');
-    if (isOpenPath(url.pathname)) return;
+/**
+ * Install the viewer's access gate. Call BEFORE registering the plugins
+ * (static, websocket), so their routes inherit the hook.
+ */
+export function registerViewerAccess(
+  app: FastifyInstance,
+  options: { token: string; sessions: ViewerSessions },
+): void {
+  const { sessions } = options;
+
+  app.addHook('onRequest', async (request, reply) => {
+    const rawPath = request.url.split('?')[0];
+    if (isOpenRequest(request.method, rawPath)) return;
+
+    // A request answered here never reaches @fastify/websocket, so a refused
+    // or redirected upgrade must have its socket closed by us.
+    const closeUpgrade = (): void => {
+      if (request.raw.headers.upgrade) request.raw.socket.destroy();
+    };
+    const refuse = async (): Promise<void> => {
+      await reply.code(401).type('text/html; charset=utf-8').send(NO_SESSION_PAGE);
+      closeUpgrade();
+    };
 
     // H13: the token is never accepted from a URL. Only a one-time code is.
-    const code = url.searchParams.get('code');
+    let code: string | null = null;
+    try {
+      code = new URL(request.url, 'http://localhost').searchParams.get('code');
+    } catch {
+      await refuse();
+      return;
+    }
     if (code !== null) {
       const session = sessions.redeem(code);
       if (session === null) {
-        await reply.code(401).type('text/html; charset=utf-8').send(NO_SESSION_PAGE);
+        await refuse();
         return;
       }
       await reply.header('set-cookie', sessionCookie(session)).redirect('/', 302);
+      closeUpgrade();
       return;
     }
 
     // H12: nothing is served, and no socket is upgraded, without a session.
-    if (!sessions.hasSession(request.headers.cookie)) {
-      await reply.code(401).type('text/html; charset=utf-8').send(NO_SESSION_PAGE);
-      if (request.raw.headers.upgrade) request.raw.socket.destroy();
-    }
+    if (!sessions.hasSession(request.headers.cookie)) await refuse();
   });
 
   // The local command that holds the token file trades it for a login code.

@@ -23,6 +23,8 @@ export interface StandaloneAccess {
   host: string;
   /** Normalized, sorted `--allowed-host` names. */
   allowedHosts: string[];
+  /** pixel-agents-secure (H11): the read-only office viewer. Absent = false. */
+  readOnly?: boolean;
 }
 
 /** Complete per-server discovery record stored in the multi-server registry. */
@@ -47,6 +49,7 @@ export function sameStandaloneAccess(
   if (running === undefined || wanted === undefined) return running === wanted;
   return (
     running.terminal === wanted.terminal &&
+    (running.readOnly ?? false) === (wanted.readOnly ?? false) &&
     running.host === wanted.host &&
     running.allowedHosts.length === wanted.allowedHosts.length &&
     running.allowedHosts.every((h, i) => h === wanted.allowedHosts[i])

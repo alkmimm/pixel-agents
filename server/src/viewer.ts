@@ -40,6 +40,28 @@ const NO_TERMINAL_REASON = 'The office viewer is read-only: it never runs a term
 
 export class ViewerArgsError extends Error {}
 
+const WATCH_ALL_SESSIONS_KEY = 'pixel-agents.watchAllSessions';
+
+/**
+ * The viewer's settings. It has no workspace of its own, so it ALWAYS watches
+ * every session; and it is read-only, so it never writes a setting.
+ *
+ * Without this, the first browser to connect switched discovery off: the
+ * `webviewReady` handshake copies the persisted settings onto the runtime, the
+ * persisted default for Watch All Sessions is off, and a read-only client can
+ * never turn it on.
+ */
+export class ViewerStateAdapter extends FileStateAdapter {
+  override getSetting<T>(key: string, defaultValue: T): T {
+    if (key === WATCH_ALL_SESSIONS_KEY) return true as T;
+    return super.getSetting(key, defaultValue);
+  }
+
+  override setSetting(): void {
+    // Read-only: settings belong to the VS Code extension.
+  }
+}
+
 /** `--port <n>` is the only option. Anything else, a bind address above all,
  *  is refused rather than ignored. */
 export function parseViewerArgs(argv: string[]): { port: number } {
@@ -79,7 +101,7 @@ async function main(): Promise<void> {
   );
 
   const store = new AgentStateStore();
-  store.setAdapter(new FileStateAdapter({ namespace: 'standalone' }));
+  store.setAdapter(new ViewerStateAdapter({ namespace: 'standalone' }));
   const characterProfilesWatcher = watchCharacterProfiles(
     (message) => store.broadcast(message),
     store,

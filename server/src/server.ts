@@ -92,6 +92,7 @@ export class PixelAgentsServer {
       ? undefined
       : {
           terminal: options?.ptyManager?.enabled ?? false,
+          ...(options?.readOnly ? { readOnly: true } : {}),
           host,
           allowedHosts: normalizedAllowedHosts(options?.allowedHosts ?? []),
         };

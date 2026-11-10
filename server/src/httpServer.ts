@@ -27,7 +27,11 @@ import { isRecord } from './serverConfig.js';
 import { registerTerminalRoutes } from './terminal/terminalRoutes.js';
 import type { TerminalSessions } from './terminal/terminalSessions.js';
 import type { AgentState } from './types.js';
-import { createViewerSessions, registerViewerAccess } from './viewerAccess.js';
+import {
+  createViewerSessions,
+  registerViewerAccess,
+  registerViewerHeaders,
+} from './viewerAccess.js';
 import {
   PRIVILEGED_BROADCAST_TYPES,
   recordUsageReport,
@@ -117,6 +121,11 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
     bodyLimit: MAX_HOOK_BODY_SIZE,
   });
 
+  // pixel-agents-secure (H14): the viewer's headers go on first, so even the
+  // Host gate's refusal below carries them.
+  let listeningPort = options.port ?? 0;
+  if (options.readOnly) registerViewerHeaders(app, () => listeningPort);
+
   // pixel-agents-secure (H7): every request must name this machine's loopback
   // (or an explicit allowed host) in Host. A DNS-rebound page reaches
   // 127.0.0.1 under its own domain name and is refused here, before any route
@@ -135,14 +144,12 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
     }
   });
 
-  // pixel-agents-secure (H12-H14): the viewer answers nothing without a
-  // session and sends its security headers on everything (viewerAccess.ts).
-  let listeningPort = options.port ?? 0;
+  // pixel-agents-secure (H12, H13): the viewer answers nothing without a
+  // session (viewerAccess.ts).
   if (options.readOnly) {
     registerViewerAccess(app, {
       token: options.token,
       sessions: createViewerSessions({ file: options.viewerSessionsFile }),
-      port: () => listeningPort,
     });
   }
 

@@ -606,19 +606,28 @@ describe('H11: the office viewer is read-only', () => {
     const { WebSocket } = await import('ws');
     const { PixelAgentsServer } = await import('../src/server.js');
     const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const { PtySessionManager } = await import('../src/terminal/ptySessionManager.js');
     const toggles: boolean[] = [];
     const server = new PixelAgentsServer();
     const config = await server.start({
       store: new AgentStateStore(),
       embedded: false,
       readOnly: true,
+      // A terminal manager IS supplied: without the readOnly rule the terminal
+      // route would be registered.
+      ptyManager: PtySessionManager.disabled('test'),
       onSetHooksEnabled: (_providerId: string, enabled: boolean) => {
         toggles.push(enabled);
       },
     });
     try {
       const cookie = await viewerLogin(config.port, config.token);
-      const ws = new WebSocket(`ws://127.0.0.1:${config.port}/ws`, { headers: { cookie } });
+      // The token rides the handshake exactly as upstream's privileged client
+      // sends it: without the readOnly rule this socket WOULD be privileged.
+      const ws = new WebSocket(
+        `ws://127.0.0.1:${config.port}/ws?token=${encodeURIComponent(config.token)}`,
+        { headers: { cookie } },
+      );
       const messages: Array<{ type?: string; readOnly?: boolean }> = [];
       ws.on('message', (data: Buffer) => messages.push(JSON.parse(data.toString())));
       await new Promise<void>((resolve, reject) => {
@@ -638,9 +647,10 @@ describe('H11: the office viewer is read-only', () => {
       // No terminal route: the path falls through to the SPA fallback or 404,
       // never to a WebSocket upgrade.
       const upgraded = await new Promise<boolean>((resolve) => {
-        const t = new WebSocket(`ws://127.0.0.1:${config.port}/terminal/1`, {
-          headers: { cookie },
-        });
+        const t = new WebSocket(
+          `ws://127.0.0.1:${config.port}/terminal/1?token=${encodeURIComponent(config.token)}`,
+          { headers: { cookie } },
+        );
         t.on('open', () => {
           t.close();
           resolve(true);
@@ -900,5 +910,168 @@ describe('H16: extra transcript roots are Claude transcript folders, and nothing
       if (before === undefined) delete process.env['PIXEL_AGENTS_EXTRA_SESSION_ROOTS'];
       else process.env['PIXEL_AGENTS_EXTRA_SESSION_ROOTS'] = before;
     }
+  });
+});
+
+describe('viewer review fixes (H11, H12, H14)', () => {
+  it('H11: the viewer keeps watching every session after a browser connects', async () => {
+    const { WebSocket } = await import('ws');
+    const { PixelAgentsServer } = await import('../src/server.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const { AgentRuntime } = await import('../src/agentRuntime.js');
+    const { claudeProvider } = await import('../src/providers/hook/claude/claude.js');
+    const { ViewerStateAdapter } = await import('../src/viewer.js');
+
+    const adapter = new ViewerStateAdapter({ namespace: 'standalone' });
+    // Persisted default is off, and the viewer never writes a setting.
+    adapter.setSetting('pixel-agents.watchAllSessions', false);
+    adapter.setSetting('pixel-agents.soundEnabled', true);
+    expect(adapter.getSetting('pixel-agents.watchAllSessions', false)).toBe(true);
+    expect(adapter.getSetting('pixel-agents.soundEnabled', false)).toBe(false);
+
+    const store = new AgentStateStore();
+    store.setAdapter(adapter);
+    const runtime = new AgentRuntime(store, claudeProvider);
+    runtime.watchAllSessions.current = true;
+    const server = new PixelAgentsServer();
+    const config = await server.start({ store, runtime, embedded: false, readOnly: true });
+    try {
+      const cookie = await viewerLogin(config.port, config.token);
+      const ws = new WebSocket(`ws://127.0.0.1:${config.port}/ws`, { headers: { cookie } });
+      const seen: string[] = [];
+      ws.on('message', (d: Buffer) => seen.push((JSON.parse(d.toString()) as { type: string }).type));
+      await new Promise<void>((resolve, reject) => {
+        ws.on('open', () => resolve());
+        ws.on('error', reject);
+      });
+      ws.send(JSON.stringify({ type: 'webviewReady' }));
+      for (let i = 0; i < 40 && !seen.includes('officeAccess'); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      ws.close();
+      expect(seen).toContain('officeAccess');
+      expect(runtime.watchAllSessions.current).toBe(true);
+    } finally {
+      runtime.dispose();
+      server.stop();
+    }
+  });
+
+  it('H12: nothing static is reachable through the open API prefixes', async () => {
+    const os = await import('os');
+    const { PixelAgentsServer } = await import('../src/server.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const { isOpenRequest } = await import('../src/viewerAccess.js');
+    const staticDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-viewer-static-'));
+    fs.mkdirSync(path.join(staticDir, 'assets'));
+    fs.writeFileSync(path.join(staticDir, 'index.html'), '<html>SPA-INDEX</html>');
+    fs.writeFileSync(path.join(staticDir, 'assets', 'app.js'), 'SPA-BUNDLE');
+
+    const server = new PixelAgentsServer();
+    const config = await server.start({
+      store: new AgentStateStore(),
+      embedded: false,
+      readOnly: true,
+      staticDir,
+    });
+    const base = `http://127.0.0.1:${config.port}`;
+    try {
+      for (const p of [
+        '/',
+        '/index.html',
+        '/assets/app.js',
+        '/api/hooks/x',
+        '/api/hooks/claude',
+        '/api/usage/claude',
+        '/api/hooks/..%2findex.html',
+        '/api/hooks/..%2fassets%2fapp.js',
+        '/api/hooks/%2e%2e/assets/app.js',
+        '/api/health/../index.html',
+        '/api/login-code',
+      ]) {
+        const res = await fetch(`${base}${p}`);
+        const body = await res.text();
+        expect(res.status, p).toBe(401);
+        expect(body, p).not.toMatch(/SPA-INDEX|SPA-BUNDLE/);
+      }
+      // With a session the same files are served.
+      const cookie = await viewerLogin(config.port, config.token);
+      expect(await (await fetch(`${base}/assets/app.js`, { headers: { cookie } })).text()).toBe(
+        'SPA-BUNDLE',
+      );
+      // The ingest routes still answer to their own Bearer check, not the session.
+      const hook = await fetch(`${base}/api/hooks/claude`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${config.token}` },
+        body: JSON.stringify({ session_id: 's', hook_event_name: 'Stop' }),
+      });
+      expect(hook.status).toBe(200);
+      expect(
+        (
+          await fetch(`${base}/api/hooks/claude`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+          })
+        ).status,
+      ).toBe(401);
+    } finally {
+      server.stop();
+    }
+    expect(isOpenRequest('GET', '/api/health')).toBe(true);
+    expect(isOpenRequest('POST', '/api/hooks/claude')).toBe(true);
+    expect(isOpenRequest('GET', '/api/hooks/claude')).toBe(false);
+    expect(isOpenRequest('POST', '/api/hooks/..%2fx')).toBe(false);
+    expect(isOpenRequest('POST', '/api/hooks/a/b')).toBe(false);
+    expect(isOpenRequest('PUT', '/api/health')).toBe(false);
+  });
+
+  it('H14: the headers are on the redirect, the bad-code refusal and the Host refusal too', async () => {
+    const http = await import('http');
+    const { PixelAgentsServer } = await import('../src/server.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const server = new PixelAgentsServer();
+    const config = await server.start({ store: new AgentStateStore(), embedded: false, readOnly: true });
+    const base = `http://127.0.0.1:${config.port}`;
+    try {
+      const { code } = (await (
+        await fetch(`${base}/api/login-code`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${config.token}` },
+        })
+      ).json()) as { code: string };
+      const redirect = await fetch(`${base}/?code=${encodeURIComponent(code)}`, { redirect: 'manual' });
+      const badCode = await fetch(`${base}/?code=nope`, { redirect: 'manual' });
+      expect(redirect.status).toBe(302);
+      expect(badCode.status).toBe(401);
+      for (const res of [redirect, badCode]) {
+        expect(res.headers.get('content-security-policy')).toContain("default-src 'none'");
+        expect(res.headers.get('x-frame-options')).toBe('DENY');
+      }
+      const forbidden = await new Promise<{ status: number; csp: unknown }>((resolve, reject) => {
+        const req = http.request(
+          { hostname: '127.0.0.1', port: config.port, path: '/', agent: false, headers: { host: 'evil.example' } },
+          (res) => {
+            res.resume();
+            resolve({ status: res.statusCode ?? 0, csp: res.headers['content-security-policy'] });
+          },
+        );
+        req.on('error', reject);
+        req.end();
+      });
+      expect(forbidden.status).toBe(403);
+      expect(String(forbidden.csp)).toContain("default-src 'none'");
+    } finally {
+      server.stop();
+    }
+  });
+
+  it('H11: a viewer and an upstream standalone server never reuse each other', async () => {
+    const { sameStandaloneAccess } = await import('../src/serverConfig.js');
+    const plain = { terminal: false, host: '127.0.0.1', allowedHosts: [] };
+    expect(sameStandaloneAccess(plain, { ...plain })).toBe(true);
+    expect(sameStandaloneAccess(plain, { ...plain, readOnly: true })).toBe(false);
+    expect(sameStandaloneAccess({ ...plain, readOnly: true }, { ...plain, readOnly: true })).toBe(true);
   });
 });
