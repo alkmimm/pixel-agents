@@ -15,6 +15,7 @@ import type {
 import { handleClientMessage } from './clientMessageHandler.js';
 import {
   HOOK_API_PREFIX,
+  LOOPBACK_BIND_HOST,
   MAX_HOOK_BODY_SIZE,
   USAGE_API_PREFIX,
   WS_CLOSE_FORBIDDEN_ORIGIN,
@@ -115,7 +116,14 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
 
   // ── Routes ──────────────────────────────────────────────────
 
-  const host = options.host ?? '127.0.0.1';
+  // pixel-agents-secure (H2): loopback only. Any other bind request is a bug or
+  // an attack, never a configuration -- fail closed before listening.
+  if (options.host !== undefined && options.host !== LOOPBACK_BIND_HOST) {
+    throw new Error(
+      `Refusing to bind to "${options.host}": this build listens on ${LOOPBACK_BIND_HOST} only.`,
+    );
+  }
+  const host = LOOPBACK_BIND_HOST;
   const allowedHostnames = privilegedHostnames(host, options.allowedHosts ?? []);
 
   registerHealthRoute(app);

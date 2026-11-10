@@ -63,3 +63,37 @@ describe('H1: no Skip Permissions', () => {
     expect(offenders.map((f) => path.relative(REPO_ROOT, f))).toEqual([]);
   });
 });
+
+describe('H2: loopback-only bind', () => {
+  it('refuses every non-loopback bind address before listening', async () => {
+    const { createHttpServer } = await import('../src/httpServer.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    for (const host of ['0.0.0.0', '::', 'localhost', '192.168.0.10']) {
+      await expect(
+        createHttpServer({ embedded: true, host, token: 't', store: new AgentStateStore() }),
+      ).rejects.toThrow(/127\.0\.0\.1 only/);
+    }
+  });
+
+  it('listens on 127.0.0.1 when no host is given', async () => {
+    const { createHttpServer } = await import('../src/httpServer.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const { app } = await createHttpServer({
+      embedded: true,
+      token: 't',
+      store: new AgentStateStore(),
+    });
+    try {
+      const address = app.server.address();
+      expect(typeof address === 'object' && address?.address).toBe('127.0.0.1');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('the CLI refuses --host off loopback and --allowed-host', async () => {
+    const { parseArgs } = await import('../src/cli.js');
+    expect(() => parseArgs(['--host', '0.0.0.0'])).toThrow();
+    expect(() => parseArgs(['--allowed-host', 'proxy.example'])).toThrow();
+  });
+});

@@ -138,6 +138,8 @@ export const LOOPBACK_HOSTNAMES = ['127.0.0.1', 'localhost', '::1'] as const;
 /** Wildcard bind addresses: listen targets, never a name a browser sends as
  *  Host, so binding to one adds nothing to the privileged-Host allowlist. */
 export const WILDCARD_HOSTNAMES = ['0.0.0.0', '::'] as const;
+/** pixel-agents-secure (H2): the ONLY address this build ever listens on. */
+export const LOOPBACK_BIND_HOST = '127.0.0.1';
 
 /** Scrollback lines the per-session headless-xterm mirror retains. Matches the
  *  browser's TERMINAL_SCROLLBACK_LINES so a reattach replays the same depth the

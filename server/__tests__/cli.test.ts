@@ -115,9 +115,13 @@ describe('parseArgs', () => {
     expect(() => parseArgs([option])).toThrow(/Missing value/);
   });
 
-  // 10. --host is parsed independently of --port
-  it('parses --host', () => {
-    expect(parseArgs(['--host', '0.0.0.0']).host).toBe('0.0.0.0');
+  // 10. pixel-agents-secure (H2): the bind address is fixed to loopback
+  it('accepts only --host 127.0.0.1 and refuses every other bind address', () => {
+    expect(parseArgs(['--host', '127.0.0.1']).host).toBe('127.0.0.1');
+    for (const host of ['0.0.0.0', '::', '192.168.0.10', 'localhost', 'example.com']) {
+      expect(() => parseArgs(['--host', host])).toThrow(CliArgsError);
+    }
+    expect(() => parseArgs(['--host'])).toThrow(CliArgsError);
   });
 
   // 11. Terminal is on by default; --no-terminal opts out
@@ -133,18 +137,11 @@ describe('parseArgs', () => {
     });
   });
 
-  // 12. --allowed-host is repeatable and validated; --rotate-token is a switch
-  it('collects repeated --allowed-host values', () => {
+  // 12. pixel-agents-secure (H2): --allowed-host is disabled; --rotate-token is a switch
+  it('refuses --allowed-host in every form', () => {
     expect(parseArgs([]).allowedHosts).toEqual([]);
-    expect(
-      parseArgs(['--allowed-host', 'mac.tailnet.ts.net', '--allowed-host', 'other.example'])
-        .allowedHosts,
-    ).toEqual(['mac.tailnet.ts.net', 'other.example']);
-  });
-
-  it('rejects a missing, malformed or wildcard --allowed-host', () => {
-    expect(() => parseArgs(['--allowed-host'])).toThrow(/Missing value/);
-    expect(() => parseArgs(['--allowed-host', 'evil@127.0.0.1'])).toThrow(CliArgsError);
+    expect(() => parseArgs(['--allowed-host'])).toThrow(CliArgsError);
+    expect(() => parseArgs(['--allowed-host', 'mac.tailnet.ts.net'])).toThrow(CliArgsError);
     expect(() => parseArgs(['--allowed-host', '0.0.0.0'])).toThrow(CliArgsError);
   });
 
@@ -274,29 +271,18 @@ describe('dist/cli.js entry-point guard', () => {
     });
   });
 
-  // `--host 0.0.0.0` is a BIND target, not an address to browse to: printing
-  // `http://0.0.0.0:PORT` hands the operator a URL that is dead on Windows and
-  // merely accidental elsewhere (macOS happens to route it to loopback, so
-  // "does it load" alone would not catch this — hence the explicit check that
-  // the DISPLAYED host is a loopback address). `::` and `''` take the same
-  // branch and are left untested here: binding them needs IPv6 on the runner,
-  // which is not a property of ours to depend on.
-  itBuilt('prints a reachable loopback host when bound to the 0.0.0.0 wildcard', async () => {
+  // pixel-agents-secure (H2): a wildcard bind is refused before anything starts.
+  itBuilt('refuses to start when asked to bind to the 0.0.0.0 wildcard', async () => {
     const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-cli-wildcard-'));
-    await runCliServer(
-      tmpHome,
-      async ({ output }) => {
-        await waitForCondition(() => URL_LINE.test(output()));
-        const url = printedUrl(output());
-
-        expect(url.hostname).not.toBe('0.0.0.0');
-        expect(['127.0.0.1', 'localhost', '[::1]', '::1']).toContain(url.hostname);
-        // The wildcard bind must not cost the operator the token either.
-        expect(url.searchParams.get('token')).toBe(mintedToken(tmpHome));
-        expect((await fetch(url)).status).toBe(200);
-      },
-      '0.0.0.0',
-    );
+    const child = spawn(process.execPath, [CLI_BUNDLE, '--host', '0.0.0.0'], {
+      env: { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stderr = '';
+    child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+    const code = await new Promise<number | null>((resolve) => child.on('exit', resolve));
+    expect(code).toBe(1);
+    expect(stderr).toMatch(/--host is disabled/);
   });
 
   // Without consent the CLI must start normally and touch nothing — the ask

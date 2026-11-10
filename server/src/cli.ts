@@ -27,11 +27,11 @@ import {
   readConfig,
 } from './configPersistence.js';
 import {
+  LOOPBACK_BIND_HOST,
   MAX_PORT,
   MIN_PORT,
   PTY_HOST_SCRIPT,
   TERMINAL_DISABLED_BY_FLAG_REASON,
-  WILDCARD_HOSTNAMES,
 } from './constants.js';
 import { FileStateAdapter } from './fileStateAdapter.js';
 import {
@@ -50,7 +50,7 @@ import { PtySessionManager } from './terminal/ptySessionManager.js';
 import { RemotePtySessions, startPtyHostProcess } from './terminal/remotePtySessions.js';
 import { reattachTerminalAgents } from './terminal/standaloneAgentLauncher.js';
 import type { TerminalSessions } from './terminal/terminalSessions.js';
-import { isLoopbackHost, normalizeHostname } from './wsAuth.js';
+import { isLoopbackHost } from './wsAuth.js';
 
 // ── Argument parsing ──────────────────────────────────────────
 
@@ -104,21 +104,18 @@ export function parseArgs(argv: string[]): CliArgs {
       }
       args.port = parsed;
       i++;
-    } else if (argv[i] === '--host' && argv[i + 1]) {
-      args.host = argv[i + 1];
-      i++;
-    } else if (argv[i] === '--allowed-host') {
-      const raw = argv[i + 1];
-      const name = normalizeHostname(raw);
-      if (name === null || (WILDCARD_HOSTNAMES as readonly string[]).includes(name)) {
+    } else if (argv[i] === '--host') {
+      // pixel-agents-secure (H2): the bind address is fixed. `--host 127.0.0.1`
+      // is still accepted (it changes nothing); anything else is refused.
+      if (argv[i + 1] !== LOOPBACK_BIND_HOST) {
         throw new CliArgsError(
-          raw === undefined
-            ? 'Missing value for --allowed-host: expected a host name, e.g. my-mac.tailnet.ts.net.'
-            : `Invalid --allowed-host "${raw}": expected a host name, e.g. my-mac.tailnet.ts.net.`,
+          `--host is disabled in this build: the server listens on ${LOOPBACK_BIND_HOST} only.`,
         );
       }
-      args.allowedHosts.push(raw as string);
       i++;
+    } else if (argv[i] === '--allowed-host') {
+      // pixel-agents-secure (H2): no extra privileged Host names.
+      throw new CliArgsError('--allowed-host is disabled in this build.');
     } else if (argv[i] === '--rotate-token') {
       args.rotateToken = true;
     } else if (argv[i] === '--no-terminal') {
@@ -136,10 +133,6 @@ export function parseArgs(argv: string[]): CliArgs {
 
 Options:
   --port, -p <number>   Port to listen on (default: OS-assigned ephemeral port)
-  --host <string>       Host to bind to (default: 127.0.0.1)
-  --allowed-host <name> Also accept the tokened URL at this host name, e.g. a
-                        reverse proxy's (Tailscale Serve). Repeatable. Without
-                        it, only localhost and a specific --host are privileged
   --rotate-token        Replace the server token. Every URL that carried the
                         old one (bookmarks, other devices) stops working
   --no-terminal         Disable the embedded terminal (watch agents only; no
