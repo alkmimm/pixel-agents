@@ -876,6 +876,37 @@ describe('H12 + H13 + H14: viewer access', () => {
 });
 
 describe('H16: extra transcript roots are Claude transcript folders, and nothing else', () => {
+  it('scans an extra root without blocking, and keeps only active sessions', async () => {
+    const { findActiveSessionsInRoots } = await import('../src/fileWatcher.js');
+    const os = await import('os');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pa-extra-root-'));
+    try {
+      const dir = path.join(root, '-some-project');
+      fs.mkdirSync(dir);
+      const big = 'x'.repeat(4096);
+      const active = path.join(dir, 'active.jsonl');
+      const known = path.join(dir, 'known.jsonl');
+      const old = path.join(dir, 'old.jsonl');
+      fs.writeFileSync(active, big);
+      fs.writeFileSync(known, big);
+      fs.writeFileSync(old, big);
+      fs.writeFileSync(path.join(dir, 'tiny.jsonl'), 'x');
+      fs.writeFileSync(path.join(dir, 'notes.txt'), big);
+      const anHourAgo = new Date(Date.now() - 3_600_000);
+      fs.utimesSync(old, anHourAgo, anHourAgo);
+
+      const pending = findActiveSessionsInRoots(
+        [path.join(root, 'missing'), root],
+        (file) => file === known,
+      );
+      // A promise, not a result: the caller's event loop is never held.
+      expect(pending).toBeInstanceOf(Promise);
+      expect(await pending).toEqual([{ file: active, dirPath: dir }]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('honours only absolute paths ending in .claude/projects, capped and deduplicated', async () => {
     const { extraSessionRoots, claudeProvider } = await import(
       '../src/providers/hook/claude/claude.js'

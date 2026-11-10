@@ -1428,8 +1428,42 @@ function scanGlobalProjectDirs(
 
   persistAgents: () => void,
 ): void {
-  const roots = hookProvider?.getAllSessionRoots?.() ?? [];
-  if (roots.length === 0) return;
+  const allRoots = hookProvider?.getAllSessionRoots?.() ?? [];
+  if (allRoots.length === 0) return;
+  // pixel-agents-secure (H16): the first root is this home's, scanned here.
+  // Every further root is an EXTRA one, possibly on a slow mount: it is scanned
+  // without blocking, on its own interval (scanExtraSessionRoots).
+  const roots = allRoots.slice(0, 1);
+  const adoptGlobal = (file: string, dirPath: string): void => {
+    const directoryName =
+      directoryNameResolver?.({ projectDir: dirPath }) ??
+      directoryNameFromProjectDir(path.basename(dirPath));
+    knownJsonlFiles.add(file);
+    console.log(
+      `[Pixel Agents] Watcher: detected global session ${path.basename(file)} (${directoryName})`,
+    );
+    adoptExternalSession(
+      file,
+      dirPath,
+      nextAgentIdRef,
+      agents,
+      fileWatchers,
+      pollingTimers,
+      waitingTimers,
+      permissionTimers,
+      persistAgents,
+      directoryName,
+    );
+  };
+  scanExtraSessionRoots(
+    allRoots.slice(1),
+    (file) => {
+      if (knownJsonlFiles.has(file)) return true;
+      for (const agent of agents.values()) if (pathsMatch(agent.jsonlFile, file)) return true;
+      return false;
+    },
+    adoptGlobal,
+  );
 
   const projectDirs: string[] = [];
   for (const root of roots) {
@@ -1477,27 +1511,89 @@ function scanGlobalProjectDirs(
         continue;
       }
 
-      const directoryName =
-        directoryNameResolver?.({ projectDir: dirPath }) ??
-        directoryNameFromProjectDir(path.basename(dirPath));
-      knownJsonlFiles.add(file);
-      console.log(
-        `[Pixel Agents] Watcher: detected global session ${path.basename(file)} (${directoryName})`,
-      );
-      adoptExternalSession(
-        file,
-        dirPath,
-        nextAgentIdRef,
-        agents,
-        fileWatchers,
-        pollingTimers,
-        waitingTimers,
-        permissionTimers,
-        persistAgents,
-        directoryName,
-      );
+      adoptGlobal(file, dirPath);
     }
   }
+}
+
+/** pixel-agents-secure (H16): how often the extra roots are scanned. */
+const EXTRA_ROOT_SCAN_INTERVAL_MS = 15_000;
+let extraRootScanRunning = false;
+let lastExtraRootScan = 0;
+
+/**
+ * pixel-agents-secure (H16): the sessions under the extra roots that pass the
+ * global scan's activity filter (over 3 KB, modified in the last 10 minutes).
+ *
+ * Asynchronous on purpose. An extra root is typically the Windows profile seen
+ * from WSL, where every stat is a round trip through the 9P mount: a
+ * synchronous pass over a few hundred transcripts held the event loop for
+ * seconds, and the server answered nothing meanwhile (measured: /api/health
+ * taking up to 10 s). Read-only: readdir and stat, nothing else.
+ */
+export async function findActiveSessionsInRoots(
+  roots: string[],
+  skip: (file: string) => boolean,
+  now: number = Date.now(),
+): Promise<Array<{ file: string; dirPath: string }>> {
+  const found: Array<{ file: string; dirPath: string }> = [];
+  for (const root of roots) {
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(root, { withFileTypes: true });
+    } catch {
+      continue; // root missing or unreadable
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const dirPath = path.join(root, entry.name);
+      let names: string[];
+      try {
+        names = await fs.promises.readdir(dirPath);
+      } catch {
+        continue;
+      }
+      for (const name of names) {
+        if (!name.endsWith('.jsonl')) continue;
+        const file = path.join(dirPath, name);
+        if (skip(file)) continue;
+        try {
+          const stat = await fs.promises.stat(file);
+          if (stat.size < GLOBAL_SCAN_ACTIVE_MIN_SIZE) continue;
+          if (now - stat.mtimeMs > GLOBAL_SCAN_ACTIVE_MAX_AGE_MS) continue;
+        } catch {
+          continue;
+        }
+        found.push({ file, dirPath });
+      }
+    }
+  }
+  return found;
+}
+
+/** Start a pass over the extra roots unless one is running or ran recently. */
+function scanExtraSessionRoots(
+  roots: string[],
+  isKnown: (file: string) => boolean,
+  adopt: (file: string, dirPath: string) => void,
+): void {
+  if (roots.length === 0 || extraRootScanRunning) return;
+  if (Date.now() - lastExtraRootScan < EXTRA_ROOT_SCAN_INTERVAL_MS) return;
+  extraRootScanRunning = true;
+  void findActiveSessionsInRoots(roots, isKnown)
+    .then((found) => {
+      for (const { file, dirPath } of found) {
+        // Re-checked: the pass took a while, and the file may be tracked by now.
+        if (!isKnown(file) && !isTrackedProjectDir(dirPath)) adopt(file, dirPath);
+      }
+    })
+    .catch((err: unknown) => {
+      console.error(`[Pixel Agents] Watcher: extra session roots scan failed: ${String(err)}`);
+    })
+    .finally(() => {
+      extraRootScanRunning = false;
+      lastExtraRootScan = Date.now();
+    });
 }
 
 /**
