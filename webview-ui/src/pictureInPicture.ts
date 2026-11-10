@@ -28,6 +28,25 @@ const PIP_WIDTH = 520;
 const PIP_HEIGHT = 320;
 const BUTTON_ID = 'pixel-agents-pip-button';
 
+/** Asks the app (useEditorActions) for a zoom that fits a box, or to restore
+ *  the zoom it had before the first such request. Sizes in CSS pixels. */
+export const FIT_ZOOM_EVENT = 'pixel-agents:fit-zoom';
+export type FitZoomDetail =
+  | { restore: true }
+  | { restore?: false; width: number; height: number };
+
+function requestZoom(detail: FitZoomDetail): void {
+  window.dispatchEvent(new CustomEvent<FitZoomDetail>(FIT_ZOOM_EVENT, { detail }));
+}
+
+/** Fit the office to the space its canvas has in the floating window. */
+function fitOffice(root: HTMLElement): void {
+  const rect = root.querySelector('canvas')?.getBoundingClientRect();
+  if (rect && rect.width > 0 && rect.height > 0) {
+    requestZoom({ width: rect.width, height: rect.height });
+  }
+}
+
 type ResizeObserverCtor = typeof ResizeObserver;
 
 /** The window whose ResizeObserver serves the app right now. */
@@ -107,6 +126,7 @@ function copyStyles(target: Document): void {
   target.body.className = document.body.className;
   target.body.style.margin = '0';
   target.body.style.overflow = 'hidden';
+  target.documentElement.style.colorScheme = 'dark';
 }
 
 async function openPictureInPicture(controller: PipController, root: HTMLElement): Promise<void> {
@@ -133,8 +153,18 @@ async function openPictureInPicture(controller: PipController, root: HTMLElement
   const openerObserver = observerHome;
   if (openerObserver && pipObserver) moveObservers(pipObserver);
   // Code that listens for the opener's `resize` hears the new window's too.
-  pip.addEventListener('resize', () => window.dispatchEvent(new Event('resize')));
+  pip.addEventListener('resize', () => {
+    window.dispatchEvent(new Event('resize'));
+    fitOffice(root);
+  });
   window.dispatchEvent(new Event('resize'));
+  fitOffice(root);
+  // The copied stylesheets load after this point, and the layout only settles
+  // then: fit again once each has arrived.
+  for (const link of pip.document.querySelectorAll('link[rel="stylesheet"]')) {
+    link.addEventListener('load', () => fitOffice(root), { once: true });
+  }
+  pip.setTimeout(() => fitOffice(root), 500);
 
   pip.addEventListener(
     'pagehide',
@@ -144,6 +174,7 @@ async function openPictureInPicture(controller: PipController, root: HTMLElement
       home.insertBefore(root, placeholder);
       placeholder.remove();
       if (openerObserver) moveObservers(openerObserver);
+      requestZoom({ restore: true });
       window.dispatchEvent(new Event('resize'));
     },
     { once: true },

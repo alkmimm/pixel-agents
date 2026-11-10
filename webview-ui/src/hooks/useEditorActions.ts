@@ -1,10 +1,11 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ColorValue } from '../components/ui/types.js';
 import {
   CARPET_DEFAULT_ACCENT_COLOR,
   CARPET_DEFAULT_COLOR,
   LAYOUT_SAVE_DEBOUNCE_MS,
+  TILE_SIZE,
   ZOOM_DEFAULT_DPR_FACTOR,
   ZOOM_MAX,
   ZOOM_MIN,
@@ -45,6 +46,7 @@ import type {
 } from '../office/types.js';
 import { EditTool } from '../office/types.js';
 import { TileType } from '../office/types.js';
+import { FIT_ZOOM_EVENT, type FitZoomDetail } from '../pictureInPicture.js';
 import { transport } from '../transport/index.js';
 import type { FurnitureColorActions } from './useFurnitureColorActions.js';
 import { useFurnitureColorActions } from './useFurnitureColorActions.js';
@@ -125,6 +127,38 @@ export function useEditorActions(
   );
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panRef = useRef({ x: 0, y: 0 });
+
+  // pixel-agents-secure (local): the picture-in-picture window asks for the
+  // largest zoom that shows the whole office, and for the old one back when it
+  // closes. See pictureInPicture.ts.
+  const zoomBeforeFitRef = useRef<number | null>(null);
+  useEffect(() => {
+    const onFit = (event: Event): void => {
+      const detail = (event as CustomEvent<FitZoomDetail>).detail;
+      if (detail.restore) {
+        if (zoomBeforeFitRef.current !== null) setZoom(zoomBeforeFitRef.current);
+        zoomBeforeFitRef.current = null;
+        panRef.current = { x: 0, y: 0 };
+        return;
+      }
+      const layout = getOfficeState().getLayout();
+      const dpr = window.devicePixelRatio || 1;
+      const fit = Math.floor(
+        Math.min(
+          (detail.width * dpr) / (layout.cols * TILE_SIZE),
+          (detail.height * dpr) / (layout.rows * TILE_SIZE),
+        ),
+      );
+      setZoom((current) => {
+        zoomBeforeFitRef.current ??= current;
+        return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, fit));
+      });
+      panRef.current = { x: 0, y: 0 };
+    };
+    window.addEventListener(FIT_ZOOM_EVENT, onFit);
+    return () => window.removeEventListener(FIT_ZOOM_EVENT, onFit);
+  }, [getOfficeState]);
+
   const lastSavedLayoutRef = useRef<OfficeLayout | null>(null);
 
   // Called by useExtensionMessages on layoutLoaded to set the initial checkpoint

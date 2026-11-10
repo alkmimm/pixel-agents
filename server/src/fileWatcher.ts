@@ -1458,9 +1458,16 @@ function scanGlobalProjectDirs(
   scanExtraSessionRoots(
     allRoots.slice(1),
     (file) => {
+      if (!EXTRA_ROOT_SESSION_FILE.test(path.basename(file))) return true;
       if (knownJsonlFiles.has(file)) return true;
-      for (const agent of agents.values()) if (pathsMatch(agent.jsonlFile, file)) return true;
-      return false;
+      // The same session id under another root is the SAME session: the Claude
+      // desktop app mirrors the transcripts of sessions it runs in WSL into the
+      // Windows profile, and each would show up as a second agent.
+      const name = path.basename(file);
+      for (const agent of agents.values()) {
+        if (path.basename(agent.jsonlFile) === name) return true;
+      }
+      return sessionExistsUnder(allRoots[0], name);
     },
     adoptGlobal,
   );
@@ -1514,6 +1521,23 @@ function scanGlobalProjectDirs(
       adoptGlobal(file, dirPath);
     }
   }
+}
+
+/** pixel-agents-secure (H16): in an extra root only `<session uuid>.jsonl` is a
+ *  session. Sub-agent transcripts (`agent-*.jsonl`) can sit beside them there. */
+const EXTRA_ROOT_SESSION_FILE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$/i;
+
+/** Whether this machine's own root already holds a transcript of that name. */
+function sessionExistsUnder(root: string, name: string): boolean {
+  try {
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (entry.isDirectory() && fs.existsSync(path.join(root, entry.name, name))) return true;
+    }
+  } catch {
+    // unreadable root: nothing to compare with
+  }
+  return false;
 }
 
 /** pixel-agents-secure (H16): how often the extra roots are scanned. */
