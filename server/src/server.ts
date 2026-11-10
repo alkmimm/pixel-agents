@@ -67,6 +67,8 @@ export class PixelAgentsServer {
     store?: AgentStateStore;
     runtime?: AgentRuntime;
     embedded?: boolean;
+    /** pixel-agents-secure (H11): the office viewer. Every client is read-only. */
+    readOnly?: boolean;
     host?: string;
     port?: number;
     staticDir?: string;
@@ -135,6 +137,7 @@ export class PixelAgentsServer {
 
     const { app, port } = await createHttpServer({
       embedded,
+      readOnly: options?.readOnly ?? false,
       host,
       port: options?.port,
       token,

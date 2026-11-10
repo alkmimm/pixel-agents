@@ -587,3 +587,116 @@ describe.skipIf(!fs.existsSync(BUNDLED_HOOK))('H4 + H9: the bundled hook script'
     expect(fs.existsSync(planted)).toBe(false);
   });
 });
+
+describe('H11: the office viewer is read-only', () => {
+  it('a read-only server refuses every state-changing message, even with the token', async () => {
+    const { WebSocket } = await import('ws');
+    const { PixelAgentsServer } = await import('../src/server.js');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const toggles: boolean[] = [];
+    const server = new PixelAgentsServer();
+    const config = await server.start({
+      store: new AgentStateStore(),
+      embedded: false,
+      readOnly: true,
+      onSetHooksEnabled: (_providerId: string, enabled: boolean) => {
+        toggles.push(enabled);
+      },
+    });
+    try {
+      const ws = new WebSocket(
+        `ws://127.0.0.1:${config.port}/ws?token=${encodeURIComponent(config.token)}`,
+      );
+      const messages: Array<{ type?: string; readOnly?: boolean }> = [];
+      ws.on('message', (data: Buffer) => messages.push(JSON.parse(data.toString())));
+      await new Promise<void>((resolve, reject) => {
+        ws.on('open', () => resolve());
+        ws.on('error', reject);
+      });
+      ws.send(JSON.stringify({ type: 'webviewReady' }));
+      ws.send(JSON.stringify({ type: 'setHooksEnabled', providerId: 'claude', enabled: true }));
+      ws.send(JSON.stringify({ type: 'launchAgent' }));
+      ws.send(JSON.stringify({ type: 'setBypassPermissions', enabled: true }));
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      ws.close();
+      expect(toggles).toEqual([]);
+      expect(messages.find((m) => m.type === 'officeAccess')?.readOnly).toBe(true);
+      expect(messages.some((m) => m.type === 'hooksConsentRequest')).toBe(false);
+
+      // No terminal route: the path falls through to the SPA fallback or 404,
+      // never to a WebSocket upgrade.
+      const upgraded = await new Promise<boolean>((resolve) => {
+        const t = new WebSocket(
+          `ws://127.0.0.1:${config.port}/terminal/1?token=${encodeURIComponent(config.token)}`,
+        );
+        t.on('open', () => {
+          t.close();
+          resolve(true);
+        });
+        t.on('unexpected-response', (req, res) => {
+          res.resume();
+          req.destroy();
+          resolve(false);
+        });
+        t.on('error', () => resolve(false));
+      });
+      expect(upgraded).toBe(false);
+    } finally {
+      server.stop();
+    }
+  });
+
+  it('the viewer entry never installs hooks, launches agents or accepts a bind address', async () => {
+    const source = fs.readFileSync(path.join(REPO_ROOT, 'server/src/viewer.ts'), 'utf-8');
+    const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    expect(code).not.toMatch(
+      /installHooks|uninstallHooks|copyHookScript|grantHooksConsent|launchStandaloneAgent|new PtySessionManager\(|onSetHooksEnabled|usageBridge|['"]--host['"]/,
+    );
+    expect(code).toContain('readOnly: true');
+    const { parseViewerArgs } = await import('../src/viewer.js');
+    expect(parseViewerArgs([]).port).toBe(3477);
+    expect(() => parseViewerArgs(['--host', '0.0.0.0'])).toThrow();
+    expect(() => parseViewerArgs(['--allowed-host', 'x'])).toThrow();
+  });
+});
+
+// The BUNDLED viewer, started for real. Needs dist/ (run by the governance build).
+const BUNDLED_VIEWER = path.join(REPO_ROOT, 'dist/office-server.js');
+describe.skipIf(!fs.existsSync(BUNDLED_VIEWER))('H11 + H15: the bundled viewer', () => {
+  it('starts with no node_modules of its own, on loopback, and writes nothing under ~/.claude', async () => {
+    const os = await import('os');
+    const net = await import('net');
+    const { spawn } = await import('child_process');
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-hardening-viewer-'));
+    const port = await new Promise<number>((resolve) => {
+      const probe = net.createServer();
+      probe.listen(0, '127.0.0.1', () => {
+        const p = (probe.address() as { port: number }).port;
+        probe.close(() => resolve(p));
+      });
+    });
+    const child = spawn(process.execPath, [BUNDLED_VIEWER, '--port', String(port)], {
+      cwd: home,
+      env: { PATH: process.env.PATH ?? '', HOME: home, USERPROFILE: home },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    child.stdout.on('data', (c: Buffer) => (output += c.toString()));
+    child.stderr.on('data', (c: Buffer) => (output += c.toString()));
+    try {
+      let status = 0;
+      for (let i = 0; i < 80 && status !== 200; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        status = await fetch(`http://127.0.0.1:${port}/api/health`)
+          .then((r) => r.status)
+          .catch(() => 0);
+      }
+      expect(status, output).toBe(200);
+      expect(fs.existsSync(path.join(home, '.claude', 'settings.json'))).toBe(false);
+      expect(fs.existsSync(path.join(home, '.pixel-agents', 'hooks'))).toBe(false);
+    } finally {
+      child.kill('SIGTERM');
+      await new Promise((resolve) => child.on('exit', resolve));
+    }
+  });
+});

@@ -45,6 +45,9 @@ import {
 export interface HttpServerOptions {
   /** true = VS Code embedded mode (ephemeral port, no static, quiet logging) */
   embedded: boolean;
+  /** pixel-agents-secure (H11): the office viewer. No client is ever
+   *  privileged, whatever token it carries, and no terminal route exists. */
+  readOnly?: boolean;
   /** Host to bind to. Default: '127.0.0.1' */
   host?: string;
   /** Port to listen on. Default: 0 (auto-assign) */
@@ -153,11 +156,14 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
   registerHookRoute(app, options);
   registerUsageRoute(app, options);
   registerWebSocketRoute(app, options, allowedHostnames);
-  registerTerminalRoutes(app, {
-    token: options.token,
-    allowedHostnames,
-    ptyManager: options.ptyManager,
-  });
+  // pixel-agents-secure (H11): a read-only server has no terminal route at all.
+  if (!options.readOnly) {
+    registerTerminalRoutes(app, {
+      token: options.token,
+      allowedHostnames,
+      ptyManager: options.ptyManager,
+    });
+  }
 
   // ── Listen ──────────────────────────────────────────────────
 
@@ -283,7 +289,9 @@ function registerWebSocketRoute(
         options.token,
         allowedHostnames,
       );
-      privileged = verdict === 'privileged';
+      // pixel-agents-secure (H11): in a read-only server the token proves
+      // nothing more than the right to watch.
+      privileged = verdict === 'privileged' && !options.readOnly;
       if (verdict === 'untrusted-host') {
         // The operator has the right URL but reached us under a name they never
         // listed (typically a reverse proxy). Say how to fix it, or the session

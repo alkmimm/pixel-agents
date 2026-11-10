@@ -104,6 +104,7 @@ async function main() {
     copyAssets();
     buildHooks();
     await buildCli();
+    await buildViewer();
     await buildPtyHost();
     await buildUninstall();
   }
@@ -160,6 +161,27 @@ async function buildCli() {
  * deliberately left out of package.json's `files`, so the published office
  * always keeps its terminals in process.
  */
+/**
+ * pixel-agents-secure (H11): the read-only office viewer, as ONE file with its
+ * dependencies inside (fastify included), so it runs with no node_modules next
+ * to it. The PTY modules stay external and are never loaded: the viewer only
+ * ever builds a disabled terminal manager.
+ */
+async function buildViewer() {
+  await esbuild.build({
+    entryPoints: ['server/src/viewer.ts'],
+    bundle: true,
+    format: 'cjs',
+    minify: production,
+    sourcemap: false,
+    platform: 'node',
+    outfile: 'dist/office-server.js',
+    external: ['@lydell/node-pty', 'node-pty'],
+    define: versionDefine,
+    logLevel: 'silent',
+  });
+}
+
 async function buildPtyHost() {
   await esbuild.build({
     entryPoints: ['server/src/terminal/ptyHostMain.ts'],
