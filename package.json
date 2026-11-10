@@ -86,7 +86,8 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run package",
+    "vscode:prepublish": "npm run package:secure",
+    "package:secure": "npm run check-types && node esbuild.js --production && npm run build:webview",
     "vscode:uninstall": "node ./dist/uninstall.js",
     "prepack": "npm run package",
     "build:extension": "node esbuild.js --production",
