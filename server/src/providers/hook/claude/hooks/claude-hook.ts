@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 
 import { HOOK_API_PREFIX } from '../../../../constants.js';
+import { filterHookPayload } from './hookPayloadFilter.js';
 import { liveServers, postToServer } from './serverRegistry.js';
 
 /** Per-server POST timeout. */
@@ -58,7 +59,9 @@ async function main(): Promise<void> {
     if (withDebugLog?.debugLog) debugLogPath = withDebugLog.debugLog;
   }
 
-  const body = JSON.stringify(data);
+  // pixel-agents-secure (H4): only the allowlisted, capped fields leave this
+  // process -- never tool_input contents, tool_response or prompt text.
+  const body = JSON.stringify(filterHookPayload(data));
   await Promise.all(
     servers.map((server) =>
       postToServer(server, {

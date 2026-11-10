@@ -117,3 +117,129 @@ describe('H3: no standalone CLI and no PTY in the extension package', () => {
     }
   });
 });
+
+describe('H4: the hook forwards an allowlisted, capped payload', () => {
+  const load = async () => {
+    const { filterHookPayload } =
+      await import('../src/providers/hook/claude/hooks/hookPayloadFilter.js');
+    const { claudeProvider } = await import('../src/providers/hook/claude/claude.js');
+    return { filterHookPayload, claudeProvider };
+  };
+
+  it('drops file contents, tool_response, prompt text and unknown fields', async () => {
+    const { filterHookPayload } = await load();
+    const filtered = filterHookPayload({
+      hook_event_name: 'PreToolUse',
+      session_id: 's1',
+      tool_name: 'Write',
+      tool_input: { file_path: '/home/u/secret/notes.md', content: 'TOP SECRET' },
+      tool_response: { stdout: 'TOP SECRET' },
+      prompt: 'TOP SECRET',
+      some_future_field: 'TOP SECRET',
+    });
+    expect(JSON.stringify(filtered)).not.toContain('TOP SECRET');
+    expect(JSON.stringify(filtered)).not.toContain('/home/u/secret');
+    expect(filtered).toEqual({
+      hook_event_name: 'PreToolUse',
+      session_id: 's1',
+      tool_name: 'Write',
+      tool_input: { file_path: 'notes.md' },
+    });
+  });
+
+  it('keeps a Bash command only as long as the status line can show it', async () => {
+    const { filterHookPayload } = await load();
+    const command = `echo ${'x'.repeat(500)} && cat ~/.ssh/id_rsa`;
+    const filtered = filterHookPayload({
+      hook_event_name: 'PreToolUse',
+      session_id: 's1',
+      tool_name: 'Bash',
+      tool_input: { command },
+    }) as { tool_input: { command: string } };
+    expect(filtered.tool_input.command.length).toBeLessThanOrEqual(31);
+    expect(filtered.tool_input.command).not.toContain('id_rsa');
+  });
+
+  it('the office reads the same thing from the filtered payload as from the raw one', async () => {
+    const { filterHookPayload, claudeProvider } = await load();
+    const raws: Record<string, unknown>[] = [
+      { tool_name: 'Bash', tool_input: { command: 'npm run test -- --reporter=verbose --bail' } },
+      {
+        tool_name: 'Edit',
+        tool_input: { file_path: '/repo/src/a.ts', old_string: 'x', new_string: 'y' },
+      },
+      { tool_name: 'Read', tool_input: { file_path: '/repo/README.md' } },
+      {
+        tool_name: 'Agent',
+        tool_input: {
+          description: 'A'.repeat(80),
+          prompt: 'secret plan',
+          run_in_background: true,
+          name: 'ana',
+        },
+      },
+      { tool_name: 'SendMessage', tool_input: { recipient: 'ana', message: 'secret' } },
+      { tool_name: 'TeamCreate', tool_input: { team_name: 'squad' } },
+    ];
+    for (const extra of raws) {
+      const raw = { hook_event_name: 'PreToolUse', session_id: 's1', ...extra };
+      const fromRaw = claudeProvider.normalizeHookEvent(raw)!.event as {
+        toolName: string;
+        input: unknown;
+        runInBackground: boolean;
+      };
+      const fromFiltered = claudeProvider.normalizeHookEvent(filterHookPayload(raw))!
+        .event as typeof fromRaw;
+      expect(claudeProvider.formatToolStatus(fromFiltered.toolName, fromFiltered.input)).toBe(
+        claudeProvider.formatToolStatus(fromRaw.toolName, fromRaw.input),
+      );
+      expect(fromFiltered.runInBackground).toBe(fromRaw.runInBackground);
+      const team = claudeProvider.team!;
+      const rawInput = fromRaw.input as Record<string, unknown>;
+      const filteredInput = fromFiltered.input as Record<string, unknown>;
+      expect(team.isTeammateSpawnCall(fromFiltered.toolName, filteredInput)).toBe(
+        team.isTeammateSpawnCall(fromRaw.toolName, rawInput),
+      );
+      expect(team.namesTeammate?.(fromFiltered.toolName, filteredInput)).toBe(
+        team.namesTeammate?.(fromRaw.toolName, rawInput),
+      );
+    }
+  });
+
+  it('reduces a Windows path to its file name too', async () => {
+    const { filterHookPayload } = await load();
+    const filtered = filterHookPayload({
+      tool_input: { file_path: 'C:\\Users\\u\\secret\\a.ts' },
+    }) as { tool_input: { file_path: string } };
+    expect(filtered.tool_input.file_path).toBe('a.ts');
+  });
+
+  it('keeps every field the lifecycle and team events are routed by', async () => {
+    const { filterHookPayload } = await load();
+    const raw = {
+      hook_event_name: 'SessionStart',
+      session_id: 's1',
+      source: 'resume',
+      transcript_path: '/t/s1.jsonl',
+      cwd: '/repo',
+      reason: 'clear',
+      notification_type: 'idle_prompt',
+      agent_type: 'reviewer',
+      agent_transcript_path: '/t/agent.jsonl',
+      teammate_name: 'ana',
+      task_subject: 'Fix it',
+      subject: 'Fix it',
+      run_in_background: true,
+    };
+    expect(filterHookPayload(raw)).toEqual(raw);
+  });
+
+  it('the hook script posts only the filtered payload', () => {
+    const script = fs.readFileSync(
+      path.join(REPO_ROOT, 'server/src/providers/hook/claude/hooks/claude-hook.ts'),
+      'utf-8',
+    );
+    expect(script).toContain('JSON.stringify(filterHookPayload(data))');
+    expect(script).not.toMatch(/JSON\.stringify\(data\)/);
+  });
+});
