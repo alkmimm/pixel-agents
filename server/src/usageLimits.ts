@@ -149,6 +149,9 @@ export function usageSnapshotMessages(): Array<UsageBridgeStatus | UsageLimits> 
     .flatMap((provider) => [usageBridgeStatusMessage(provider), usageLimitsMessage(provider.id)]);
 }
 
+/** pixel-agents-secure (H8). */
+export const USAGE_BRIDGE_DISABLED_MESSAGE = 'Usage Bars is disabled in this build.';
+
 /**
  * Carry out the Usage Bars toggle: install (the click IS the consent — the
  * disclosure was on screen) or restore the user's status line. Never rejects;
@@ -164,8 +167,11 @@ export async function applyUsageBridgeChoice(
   if (!bridge) return usageBridgeStatusMessage(provider);
   try {
     if (enabled) {
-      if (!packageRoot) throw new Error('This server cannot install the usage bridge.');
-      await bridge.install(packageRoot);
+      // pixel-agents-secure (H8): this build never rewrites the user's
+      // statusLine nor runs it through a shell. Turning an existing bridge OFF
+      // (below) stays possible, so an install made by upstream can be undone.
+      void packageRoot;
+      throw new Error(USAGE_BRIDGE_DISABLED_MESSAGE);
     } else {
       await bridge.uninstall();
     }

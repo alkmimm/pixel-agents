@@ -131,7 +131,8 @@ export function IntroBubble({
   // ask); the user is still on an earlier step then.
   const [offerUsage, setOfferUsage] = useState<boolean | null>(null);
   useEffect(() => {
-    if (offerUsage === null && usageBridge) setOfferUsage(!usageBridge.installed);
+    // pixel-agents-secure (H8): the Intro never offers the usage bridge.
+    if (offerUsage === null && usageBridge) setOfferUsage(false);
   }, [offerUsage, usageBridge]);
   const steps: StepId[] = [
     'welcome',

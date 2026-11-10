@@ -213,7 +213,8 @@ export function SettingsModal({
           checked={hooksInstalled}
           onChange={onToggleHooksEnabled}
         />
-        {usageBridge && (
+        {/* pixel-agents-secure (H8): offered only to turn an existing bridge off. */}
+        {usageBridge?.installed && (
           <>
             <Checkbox
               label="Usage Bars"
