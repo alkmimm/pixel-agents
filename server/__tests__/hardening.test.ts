@@ -498,7 +498,12 @@ describe('H7 (routes that matter): a forged Host reaches no handler', () => {
           ws.close();
           resolve(true);
         });
-        ws.on('unexpected-response', () => resolve(false));
+        // Consume and drop the refused upgrade, or the server waits on it at close.
+        ws.on('unexpected-response', (req, res) => {
+          res.resume();
+          req.destroy();
+          resolve(false);
+        });
         ws.on('error', () => resolve(false));
       });
       expect(opened).toBe(false);
