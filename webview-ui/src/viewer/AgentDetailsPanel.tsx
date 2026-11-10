@@ -80,10 +80,14 @@ function ActivityList({ entries }: { entries: ActivityEntry[] }) {
             className={`flex gap-8 py-2 ${marker ? 'mt-4' : ''}`}
             style={BODY_FONT}
           >
-            <span className="text-text-muted shrink-0 tabular-nums">{clockTime(e.t)}</span>
+            {/* The font on each span: the global pixel-font rule beats inheritance. */}
+            <span className="text-text-muted shrink-0 tabular-nums" style={BODY_FONT}>
+              {clockTime(e.t)}
+            </span>
             <span
               className="min-w-0 break-words"
               style={{
+                ...BODY_FONT,
                 color: marker ?? 'var(--color-text)',
                 paddingLeft: e.k === 'subtool' ? 12 : 0,
                 opacity: isTool ? 0.95 : 1,
