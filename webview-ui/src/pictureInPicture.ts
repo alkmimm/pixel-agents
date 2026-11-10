@@ -27,6 +27,7 @@ const PIP_WIDTH = 520;
 const PIP_HEIGHT = 320;
 /** Asks the app (useEditorActions) for a zoom that fits a box, or to restore
  *  the zoom it had before the first such request. Sizes in CSS pixels. */
+const FIT_MARGIN = 0.92;
 export const FIT_ZOOM_EVENT = 'pixel-agents:fit-zoom';
 export type FitZoomDetail =
   | { restore: true }
@@ -48,7 +49,12 @@ function requestZoom(detail: FitZoomDetail): void {
 export function fitOffice(remember = false): void {
   const rect = appRoot()?.querySelector('canvas')?.getBoundingClientRect();
   if (rect && rect.width > 0 && rect.height > 0) {
-    requestZoom({ width: rect.width, height: rect.height, remember });
+    // A margin, so the office does not touch the window's edges.
+    requestZoom({
+      width: rect.width * FIT_MARGIN,
+      height: rect.height * FIT_MARGIN,
+      remember,
+    });
   }
 }
 

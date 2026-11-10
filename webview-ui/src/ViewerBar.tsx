@@ -36,7 +36,7 @@ const OPTIONS: Array<{ key: keyof ViewerPrefs; label: string }> = [
   { key: 'overlay', label: 'Balões e rótulos' },
   { key: 'labels', label: 'Rótulos sempre visíveis' },
   { key: 'areas', label: 'Áreas' },
-  { key: 'ghosts', label: 'Headless como fantasmas' },
+  { key: 'ghosts', label: 'Fantasmas (headless)' },
   { key: 'music', label: 'Player de música' },
 ];
 
