@@ -547,7 +547,7 @@ describe.skipIf(!fs.existsSync(BUNDLED_HOOK))('H4 + H9: the bundled hook script'
       }),
     );
 
-    const env = { ...process.env, HOME: home, USERPROFILE: home };
+    const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home };
     delete env['PIXEL_AGENTS_DEBUG_LOG'];
     const child = spawn(process.execPath, [BUNDLED_HOOK], { env, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '';
