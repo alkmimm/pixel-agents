@@ -119,7 +119,13 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
   app.addHook('onRequest', async (request, reply) => {
     const name = normalizeHostname(request.headers.host);
     if (name === null || !allowedHostnames.has(name)) {
-      await reply.code(403).send('forbidden host');
+      // `connection: close`: a refused request must not leave its socket open.
+      // For a WebSocket upgrade nothing else would ever close it.
+      await reply.code(403).header('connection', 'close').send('forbidden host');
+      // A refused WebSocket upgrade: its socket was detached from the HTTP
+      // server and @fastify/websocket only destroys it for requests that got
+      // past this hook, so nothing else would ever close it.
+      if (request.raw.headers.upgrade) request.raw.socket.destroy();
     }
   });
 

@@ -470,6 +470,9 @@ describe('H7 (routes that matter): a forged Host reaches no handler', () => {
             port,
             path: '/api/hooks/claude',
             method: 'POST',
+            // One connection per request: a refused request leaves its body
+            // unread, and a kept-alive socket in that state stalls app.close().
+            agent: false,
             headers: {
               'content-type': 'application/json',
               authorization: 'Bearer t',
