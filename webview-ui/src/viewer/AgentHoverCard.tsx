@@ -108,7 +108,7 @@ export function AgentHoverCard({
   return (
     <div
       className="absolute pixel-panel pointer-events-none select-none flex flex-col gap-4 px-10 py-8"
-      style={{ left, top, width: CARD_WIDTH, zIndex: 25 }}
+      style={{ left, top, width: CARD_WIDTH, zIndex: 35 }}
       data-testid="agent-hover-card"
       data-agent-id={hoveredId}
     >

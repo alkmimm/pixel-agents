@@ -217,7 +217,8 @@ export function AgentDetailsPanel({
       style={{
         right: rightGap,
         width: `min(400px, calc(100% - ${rightGap + 8}px))`,
-        zIndex: 25,
+        // Over the music player (z 30) while open; under the modals (z 50).
+        zIndex: 35,
       }}
       data-testid="agent-details"
       data-agent-id={agentId}

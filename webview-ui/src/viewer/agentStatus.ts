@@ -39,7 +39,10 @@ export function agentStatusView(
       : { tone: 'done', text: 'Terminou' };
   }
   if (running) return { tone: 'active', text: 'Trabalhando', tool: running.status };
-  if (ch?.isActive) return { tone: 'active', text: 'Trabalhando', tool: tools[tools.length - 1]?.status };
+  // Mid-turn between tools, as the label over the character says it (an
+  // active agent with no tool yet reads "Idle" there too).
+  const last = tools[tools.length - 1];
+  if (ch?.isActive && last) return { tone: 'active', text: 'Trabalhando', tool: last.status };
   return { tone: 'idle', text: 'Ocioso' };
 }
 
