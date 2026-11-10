@@ -4,6 +4,7 @@ import fastifyWebsocket from '@fastify/websocket';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import Fastify from 'fastify';
 
+import type { ActivityLog } from './activityLog.js';
 import { agentCreatedMessage } from './agentMessages.js';
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
@@ -55,6 +56,8 @@ export interface HttpServerOptions {
   readOnly?: boolean;
   /** Where a read-only server keeps its browser sessions (hashes only). */
   viewerSessionsFile?: string;
+  /** pixel-agents-secure (local): the viewer's activity history. */
+  activity?: ActivityLog;
   /** Host to bind to. Default: '127.0.0.1' */
   host?: string;
   /** Port to listen on. Default: 0 (auto-assign) */
@@ -368,6 +371,7 @@ function registerWebSocketRoute(
           packageRoot: options.packageRoot,
           privileged,
           ptyManager: options.ptyManager,
+          activity: options.activity,
         });
       } catch {
         // Malformed JSON, ignore

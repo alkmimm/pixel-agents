@@ -1,6 +1,7 @@
 import type { StateAdapter } from '../../core/src/adapter.js';
 import { rosterPick } from '../../core/src/paletteUtils.js';
 import type { HookProvider } from '../../core/src/provider.js';
+import type { ActivityLog } from './activityLog.js';
 import { resendAgentActivity } from './agentActivityResend.js';
 import { buildAgentDiagnostics } from './agentDiagnostics.js';
 import type { AgentRuntime } from './agentRuntime.js';
@@ -96,6 +97,9 @@ export interface ClientMessageContext {
   /** PTY terminals for standalone-launched agents. Absent in VS Code embedded
    *  mode, where the editor owns terminal lifecycle. */
   ptyManager?: TerminalSessions;
+  /** pixel-agents-secure (local): the viewer's activity history, sent on
+   *  connect. Absent outside the viewer. */
+  activity?: ActivityLog;
 }
 
 // ── Setting key constants (mirror adapters/vscode/constants.ts) ──
@@ -749,6 +753,15 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   // exist once the layout flush creates them. Without this a reconnecting
   // client shows bare characters until each agent takes another turn.
   resendAgentActivity(send, store);
+
+  // 8b. pixel-agents-secure (local): the viewer's recent activity per agent,
+  // after the agents exist. Only labels the office already showed.
+  if (ctx.activity) {
+    send({
+      type: 'agentActivityHistory',
+      agents: ctx.activity.snapshot(),
+    });
+  }
 
   // 9. Re-announce live terminals AFTER existingAgents, so a browser that
   // reloaded (or a second tab) rebuilds its drawer tabs. The PTY outlives the

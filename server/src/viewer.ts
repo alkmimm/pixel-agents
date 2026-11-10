@@ -21,6 +21,7 @@
 
 import * as path from 'path';
 
+import { ActivityLog } from './activityLog.js';
 import { AgentRuntime } from './agentRuntime.js';
 import { AgentStateStore } from './agentStateStore.js';
 import { buildAssetCache } from './assetReload.js';
@@ -107,6 +108,9 @@ async function main(): Promise<void> {
     store,
   );
 
+  // Before the runtime and the server: it must see every broadcast.
+  const activity = new ActivityLog(store);
+
   const runtime = new AgentRuntime(store, claudeProvider);
   const server = new PixelAgentsServer();
   server.onHookEvent((providerId, event) => runtime.handleHookEvent(providerId, event));
@@ -116,6 +120,7 @@ async function main(): Promise<void> {
     runtime,
     embedded: false,
     readOnly: true,
+    activity,
     port: args.port,
     staticDir: path.join(distRoot, 'webview'),
     assetCache,
@@ -146,6 +151,7 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     characterProfilesWatcher.dispose();
+    activity.dispose();
     runtime.dispose();
     server.stop();
     process.exit(0);

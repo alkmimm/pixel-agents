@@ -21,6 +21,8 @@ export interface ViewerPrefs {
   areas: boolean;
   ghosts: boolean;
   music: boolean;
+  /** The notification sound when an agent finishes or asks for approval. */
+  sound: boolean;
 }
 
 const DEFAULT_PREFS: ViewerPrefs = {
@@ -29,6 +31,7 @@ const DEFAULT_PREFS: ViewerPrefs = {
   areas: false,
   ghosts: false,
   music: true,
+  sound: true,
 };
 const STORAGE_KEY = 'pixel-agents-secure.viewer-prefs';
 
@@ -38,6 +41,7 @@ const OPTIONS: Array<{ key: keyof ViewerPrefs; label: string }> = [
   { key: 'areas', label: 'Áreas' },
   { key: 'ghosts', label: 'Fantasmas (headless)' },
   { key: 'music', label: 'Player de música' },
+  { key: 'sound', label: 'Som de aviso' },
 ];
 
 function loadPrefs(): ViewerPrefs {

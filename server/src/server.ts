@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import type { ActivityLog } from './activityLog.js';
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
 import type {
@@ -69,6 +70,8 @@ export class PixelAgentsServer {
     embedded?: boolean;
     /** pixel-agents-secure (H11): the office viewer. Every client is read-only. */
     readOnly?: boolean;
+    /** pixel-agents-secure (local): the viewer's activity history. */
+    activity?: ActivityLog;
     host?: string;
     port?: number;
     staticDir?: string;
@@ -139,6 +142,7 @@ export class PixelAgentsServer {
     const { app, port } = await createHttpServer({
       embedded,
       readOnly: options?.readOnly ?? false,
+      activity: options?.activity,
       viewerSessionsFile: options?.readOnly
         ? path.join(os.homedir(), SERVER_JSON_DIR, 'viewer-sessions.json')
         : undefined,

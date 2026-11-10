@@ -1122,3 +1122,58 @@ describe('viewer review fixes (H11, H12, H14)', () => {
     expect(sameStandaloneAccess({ ...plain, readOnly: true }, { ...plain, readOnly: true })).toBe(true);
   });
 });
+
+describe('viewer activity history: only the labels the office already shows', () => {
+  it('records turns, tool labels and permissions; never a tool input', async () => {
+    const os = await import('os');
+    const { AgentStateStore } = await import('../src/agentStateStore.js');
+    const { createAgentState } = await import('../src/agentState.js');
+    const { ActivityLog, cwdFromTranscriptHead, folderName } = await import('../src/activityLog.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-activity-'));
+    const transcript = path.join(dir, 's.jsonl');
+    fs.writeFileSync(transcript, JSON.stringify({ type: 'user', cwd: '/home/u/repos/meu-projeto', message: { content: 'x' } }) + '\n');
+    let now = 1_000_000;
+    const store = new AgentStateStore();
+    const log = new ActivityLog(store, { now: () => now, max: 5 });
+    const live: Array<Record<string, unknown>> = [];
+    store.on('broadcast', (m) => {
+      if (m.type === 'agentActivity') live.push(m);
+    });
+    store.set(1, createAgentState({ id: 1, sessionId: 's', projectDir: dir, jsonlFile: transcript, isExternal: true }));
+    store.broadcast({ type: 'agentStatus', id: 1, status: 'active' });
+    store.broadcast({ type: 'agentStatus', id: 1, status: 'active' });
+    store.broadcast({ type: 'agentToolStart', id: 1, toolId: 'a', status: 'Reading x.ts', toolName: 'Read', input: { file_path: '/segredo/x.ts' }, tool_input: 'CONTEUDO' });
+    store.broadcast({ type: 'agentToolStart', id: 1, toolId: 'a-hook', status: 'Reading x.ts' });
+    now += 5_000;
+    store.broadcast({ type: 'agentToolPermission', id: 1 });
+    store.broadcast({ type: 'agentStatus', id: 1, status: 'waiting', awaitingInput: true });
+    store.broadcast({ type: 'agentToolStart', id: 42, toolId: 'z', status: 'Ghost' });
+
+    const [snap] = log.snapshot();
+    expect(snap.entries.map((e) => e.k)).toEqual(['joined', 'turn', 'tool', 'permission', 'input']);
+    for (const entry of snap.entries) {
+      expect(Object.keys(entry).every((k) => ['t', 'k', 'label', 'toolId'].includes(k))).toBe(true);
+    }
+    expect(JSON.stringify(snap)).not.toMatch(/segredo|CONTEUDO|Ghost/);
+    expect(live.length).toBeGreaterThanOrEqual(5);
+
+    // Capped.
+    for (let i = 0; i < 10; i++) {
+      now += 10_000;
+      store.broadcast({ type: 'agentToolStart', id: 1, toolId: `t${i}`, status: `Tool ${i}` });
+    }
+    expect(log.snapshot()[0].entries).toHaveLength(5);
+
+    // The project is the cwd's last segment, nothing more.
+    for (let i = 0; i < 40 && !log.snapshot()[0].project; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(log.snapshot()[0].project).toBe('meu-projeto');
+    expect(folderName('C:\\Users\\alguem\\repos\\app')).toBe('app');
+    expect(cwdFromTranscriptHead('{"cwd":"/a/b\\"c"}')).toBe('/a/b"c');
+
+    store.delete(1);
+    expect(log.snapshot()).toEqual([]);
+    log.dispose();
+  });
+});

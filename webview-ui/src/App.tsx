@@ -39,6 +39,7 @@ import { MobileShell } from './mobile/MobileShell.js';
 import { useMobileMenu } from './mobile/useMobileMenu.js';
 import { useMobileShell } from './mobile/useMobileShell.js';
 import { MusicPlayer } from './music/MusicPlayer.js';
+import { setSoundEnabled } from './notificationSound.js';
 import { OfficeCanvas } from './office/components/OfficeCanvas.js';
 import { ToolOverlay } from './office/components/ToolOverlay.js';
 import { EditorState } from './office/editor/editorState.js';
@@ -55,6 +56,9 @@ import { installTestHooks } from './testHooks.js';
 import { transport } from './transport/index.js';
 import { UsageBars } from './usage/UsageBars.js';
 import { useUsageBridge } from './usage/useUsageBridge.js';
+import { AgentDetailsPanel } from './viewer/AgentDetailsPanel.js';
+import { AgentHoverCard } from './viewer/AgentHoverCard.js';
+import { useAttentionTitle } from './viewer/useAttentionTitle.js';
 import { ViewerBar, useViewerPrefs } from './ViewerBar.js';
 import { canvasDpr } from './viewScale.js';
 
@@ -254,6 +258,21 @@ function App() {
     setGhostHeadlessAgents,
   ]);
 
+  // The viewer's own notification sound choice, re-applied after every
+  // settingsLoaded (which would otherwise carry the extension's setting).
+  useEffect(() => {
+    if (officeReadOnly) setSoundEnabled(viewerPrefs.sound);
+  });
+
+  // pixel-agents-secure (local): the agent whose details panel is open
+  // (read-only office only), and the tab title counting who needs you.
+  const [detailsAgentId, setDetailsAgentId] = useState<number | null>(null);
+  const closeDetails = useCallback(() => setDetailsAgentId(null), []);
+  useEffect(() => {
+    if (detailsAgentId !== null && !agents.includes(detailsAgentId)) setDetailsAgentId(null);
+  }, [agents, detailsAgentId]);
+  useAttentionTitle(officeReadOnly, agents, getOfficeState);
+
   const directoryEditor = useDirectoryEditor({
     directories,
     directoryRejection,
@@ -403,6 +422,12 @@ function App() {
       // If clicked agent is a sub-agent, focus the parent's terminal instead
       const os = getOfficeState();
       const focusId = os.terminalOwnerOf(agentId);
+      // pixel-agents-secure (local): a read-only office has no terminal to
+      // focus; a click opens (or, again, closes) the agent's details.
+      if (officeReadOnly) {
+        setDetailsAgentId((open) => (open === focusId ? null : focusId));
+        return;
+      }
       transport.send({ type: 'focusAgent', id: focusId });
       // Standalone: focusAgent is a no-op server-side (there's no editor to
       // raise a panel in), so focus is resolved here — reveal the agent's tab
@@ -417,7 +442,7 @@ function App() {
         if (isMobile) showMobileTerminal();
       }
     },
-    [terminalAgentIds, isMobile, revealTerminal, showMobileTerminal],
+    [terminalAgentIds, isMobile, revealTerminal, showMobileTerminal, officeReadOnly],
   );
 
   // Desktop card click. A card with a terminal pane is its tab: show that
@@ -428,6 +453,11 @@ function App() {
   const { select: selectTerminal } = terminalDrawer;
   const handleCardSelect = useCallback(
     (agentId: number) => {
+      if (officeReadOnly) {
+        getOfficeState().selectAndFollow(agentId);
+        setDetailsAgentId(agentId);
+        return;
+      }
       if (terminalAgentIds.includes(agentId)) {
         selectTerminal(agentId);
         return;
@@ -435,7 +465,7 @@ function App() {
       transport.send({ type: 'focusAgent', id: agentId });
       getOfficeState().selectAndFollow(agentId);
     },
-    [terminalAgentIds, selectTerminal],
+    [terminalAgentIds, selectTerminal, officeReadOnly],
   );
 
   // A running conversation pressed in the desktop sidebar: its agent, as its
@@ -696,6 +726,30 @@ function App() {
               alwaysShowOverlay={alwaysShowOverlay}
             />
           </div>
+
+          {/* pixel-agents-secure (local): hover card and details panel. */}
+          {officeReadOnly && (
+            <AgentHoverCard
+              officeState={officeState}
+              containerRef={containerRef}
+              zoom={editor.zoom}
+              panRef={editor.panRef}
+              agentTools={agentTools}
+              subagentTools={subagentTools}
+              subagentCharacters={subagentCharacters}
+              detailsAgentId={detailsAgentId}
+            />
+          )}
+          {officeReadOnly && detailsAgentId !== null && (
+            <AgentDetailsPanel
+              key={detailsAgentId}
+              agentId={detailsAgentId}
+              officeState={officeState}
+              agentTools={agentTools}
+              subagentCharacters={subagentCharacters}
+              onClose={closeDetails}
+            />
+          )}
         </>
       ) : (
         <DebugView

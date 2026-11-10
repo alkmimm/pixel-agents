@@ -9,6 +9,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import { prepareResizeObservers } from './pictureInPicture';
 import { isBrowserRuntime } from './runtime';
+import { startActivityFeed } from './viewer/agentActivity';
 
 async function main() {
   // browserMock is for Vite dev mode only (UI prototyping without a server).
@@ -18,7 +19,11 @@ async function main() {
     await initBrowserMock();
   }
   // pixel-agents-secure (local): before the first render, see pictureInPicture.ts.
-  if (isBrowserRuntime) prepareResizeObservers();
+  if (isBrowserRuntime) {
+    prepareResizeObservers();
+    // Listening before the first message, so the history sent on connect is kept.
+    startActivityFeed();
+  }
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />
