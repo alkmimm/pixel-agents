@@ -51,6 +51,7 @@ import type { SubagentWatch } from './subagentWatch.js';
 import { cancelPermissionTimer, cancelWaitingTimer, clearAgentActivity } from './timerManager.js';
 import { getHookProvider, processTranscriptLine } from './transcriptParser.js';
 import type { AgentState } from './types.js';
+import { completeUtf8Length } from './utf8Boundary.js';
 
 /** Dismissal tracker instance. Set once at startup via setDismissalTracker().
  *  Replaces the former module-global dismissedJsonlFiles, clearDismissedFiles,
@@ -219,11 +220,20 @@ export function readNewLines(
     const bytesToRead = Math.min(stat.size - agent.fileOffset, MAX_READ_BYTES);
     const buf = Buffer.alloc(bytesToRead);
     const fd = fs.openSync(agent.jsonlFile, 'r');
-    fs.readSync(fd, buf, 0, buf.length, agent.fileOffset);
-    fs.closeSync(fd);
-    agent.fileOffset += bytesToRead;
+    let bytesRead: number;
+    try {
+      bytesRead = fs.readSync(fd, buf, 0, buf.length, agent.fileOffset);
+    } finally {
+      fs.closeSync(fd);
+    }
+    // pixel-agents-secure (local): a chunk may end inside a multi-byte
+    // character; those bytes are left for the next read instead of being
+    // decoded in halves (utf8Boundary.ts).
+    const complete = completeUtf8Length(buf.subarray(0, bytesRead));
+    if (complete === 0) return;
+    agent.fileOffset += complete;
 
-    const text = agent.lineBuffer + buf.toString('utf-8');
+    const text = agent.lineBuffer + buf.toString('utf-8', 0, complete);
     const lines = text.split('\n');
     agent.lineBuffer = lines.pop() || '';
 
