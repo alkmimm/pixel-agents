@@ -105,6 +105,11 @@ const FEATURE_OPTIONS: Array<{ key: ViewerToggle; label: string; title: string }
   },
 ];
 
+/** Not offered inside the VS Code panel (see `embedded`). */
+const VIEWER_ONLY: ViewerToggle[] = ['rooms', 'compactOffice'];
+/** Where the bar sits inside the VS Code panel: over the panel's toolbar. */
+const EMBEDDED_BOTTOM_PX = 66;
+
 /** Saved like the others, but switched by a button of the bar, not a checkbox. */
 const HIDDEN_TOGGLES: ViewerToggle[] = ['agentsPanel'];
 
@@ -155,11 +160,16 @@ export function ViewerBar({
   onToggle,
   onLabelMode,
   onRoomNames,
+  embedded = false,
 }: {
   prefs: ViewerPrefs;
   onToggle: (key: ViewerToggle) => void;
   onLabelMode: (mode: LabelMode) => void;
   onRoomNames: (mode: RoomNameMode) => void;
+  /** Inside the VS Code panel: over its toolbar, and only with what the
+   *  panel's own Settings do not already have (and without the project rooms,
+   *  which redraw the layout the panel edits and saves). */
+  embedded?: boolean;
 }) {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [floating, setFloating] = useState(false);
@@ -180,7 +190,7 @@ export function ViewerBar({
       // Over the agents list and the "Precisa de você" box (z 15), which sit
       // where the options open.
       className="absolute left-10 top-10 bottom-10 z-20 flex flex-col items-start justify-end gap-4 pointer-events-none"
-      style={{ maxWidth: 'calc(100% - 20px)' }}
+      style={{ maxWidth: 'calc(100% - 20px)', ...(embedded ? { bottom: EMBEDDED_BOTTOM_PX } : {}) }}
     >
       {optionsOpen && (
         <div
@@ -188,7 +198,7 @@ export function ViewerBar({
           data-testid="viewer-options"
           onWheel={(e) => e.stopPropagation()}
         >
-          {OPTIONS.map(({ key, label }) => (
+          {(embedded ? [] : OPTIONS).map(({ key, label }) => (
             <Checkbox
               key={key}
               label={label}
@@ -198,7 +208,7 @@ export function ViewerBar({
           ))}
           <span className="text-2xs text-text-muted mt-4">Rótulos aparecem</span>
           <div className="flex flex-wrap gap-4 shrink-0" data-testid="viewer-label-mode">
-            {LABEL_MODES.map(({ mode, label, title }) => (
+            {LABEL_MODES.filter(({ mode }) => !embedded || mode !== 'always').map(({ mode, label, title }) => (
               <Button
                 key={mode}
                 size="sm"
@@ -210,22 +220,26 @@ export function ViewerBar({
               </Button>
             ))}
           </div>
-          <span className="text-2xs text-text-muted mt-4">Nome das salas</span>
-          <div className="flex flex-wrap gap-4 shrink-0" data-testid="viewer-room-names">
-            {ROOM_NAME_MODES.map(({ mode, label, title }) => (
-              <Button
-                key={mode}
-                size="sm"
-                variant={prefs.roomNames === mode ? 'active' : 'default'}
-                title={title}
-                onClick={() => onRoomNames(mode)}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
+          {!embedded && (
+            <>
+              <span className="text-2xs text-text-muted mt-4">Nome das salas</span>
+              <div className="flex flex-wrap gap-4 shrink-0" data-testid="viewer-room-names">
+                {ROOM_NAME_MODES.map(({ mode, label, title }) => (
+                  <Button
+                    key={mode}
+                    size="sm"
+                    variant={prefs.roomNames === mode ? 'active' : 'default'}
+                    title={title}
+                    onClick={() => onRoomNames(mode)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </>
+          )}
           <span className="text-2xs text-text-muted mt-4">Novidades</span>
-          {FEATURE_OPTIONS.map(({ key, label, title }) => (
+          {FEATURE_OPTIONS.filter(({ key }) => !embedded || !VIEWER_ONLY.includes(key)).map(({ key, label, title }) => (
             <span key={key} title={title}>
               <Checkbox label={label} checked={prefs[key]} onChange={() => onToggle(key)} />
             </span>

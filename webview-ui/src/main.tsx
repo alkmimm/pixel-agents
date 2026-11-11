@@ -20,12 +20,12 @@ async function main() {
     await initBrowserMock();
   }
   // pixel-agents-secure (local): before the first render, see pictureInPicture.ts.
-  if (isBrowserRuntime) {
-    prepareResizeObservers();
-    // Listening before the first message, so the history sent on connect is kept.
-    startActivityFeed();
-    startSignalsFeed();
-  }
+  if (isBrowserRuntime) prepareResizeObservers();
+  // Listening before the first message, so the history sent on connect is
+  // kept. In the VS Code panel too: the list of agents and the labels "quando
+  // importa" read the same feeds there.
+  startActivityFeed();
+  startSignalsFeed();
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />

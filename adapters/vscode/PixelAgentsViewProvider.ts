@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import type { StateAdapter } from '../../core/src/adapter.js';
 import { rosterPick } from '../../core/src/paletteUtils.js';
 import type { HookProvider } from '../../core/src/provider.js';
+import { ActivityLog } from '../../server/src/activityLog.js';
 import { filterSignalsForClient } from '../../server/src/sessionSignals.js';
 import { buildAgentDiagnostics } from '../../server/src/agentDiagnostics.js';
 import { agentCreatedMessage } from '../../server/src/agentMessages.js';
@@ -105,6 +106,12 @@ const MAX_PENDING_BROADCASTS = 1_000;
 
 export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
   store = new AgentStateStore();
+  /** pixel-agents-secure (local): each agent's recent activity, as in the
+   *  viewer (server/src/activityLog.ts): only the labels the office already
+   *  shows, kept in memory. It is what tells the panel since when an agent
+   *  waits on you, after the bubble over it has faded. Created with the store,
+   *  before anything broadcasts through it. */
+  private readonly activity = new ActivityLog(this.store);
   webviewView: vscode.WebviewView | undefined;
 
   // Webview iframe takes ~hundreds of ms to load the React app and attach
@@ -969,6 +976,12 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
           }
         })();
         sendExistingAgents(this.store, this.adapter, this.webview);
+        // pixel-agents-secure (local): the history so far; never the conversation (H17 is the viewer's).
+        this.webview?.postMessage({
+          type: 'agentActivityHistory',
+          agents: this.activity.snapshot(),
+          conversation: false,
+        });
       } else if (message.type === 'requestDiagnostics') {
         // Send connection diagnostics for all agents to the Debug View
         this.webview?.postMessage({

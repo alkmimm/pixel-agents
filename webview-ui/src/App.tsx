@@ -60,7 +60,6 @@ import { AgentDetailsPanel } from './viewer/AgentDetailsPanel.js';
 import { AgentHoverCard } from './viewer/AgentHoverCard.js';
 import {
   BADGE_COLOR,
-  NO_FEATURES,
   sessionTitle,
   signalBadges,
   useAllSignals,
@@ -259,20 +258,18 @@ function App() {
   // this browser's own (ViewerBar.tsx) and win over the server's settings.
   // Nothing is sent to the server.
   const [viewerPrefs, toggleViewerPref, setViewerLabelMode, setViewerRoomNames] = useViewerPrefs();
-  // pixel-agents-secure (local): the opt-in features (Opções → Novidades),
-  // only in the read-only office.
+  // pixel-agents-secure (local): the opt-in features (Opções → Novidades). In
+  // the viewer and, since 2026-11-11, in the VS Code panel too (there the
+  // choice lives in the webview's own storage).
   const features = useMemo<ViewerFeatures>(
-    () =>
-      officeReadOnly
-        ? {
-            sessionTitle: viewerPrefs.sessionTitle,
-            idleTime: viewerPrefs.idleTime,
-            signals: viewerPrefs.signals,
-            permissionMode: viewerPrefs.permissionMode,
-            inbox: viewerPrefs.inbox,
-          }
-        : NO_FEATURES,
-    [officeReadOnly, viewerPrefs],
+    () => ({
+      sessionTitle: viewerPrefs.sessionTitle,
+      idleTime: viewerPrefs.idleTime,
+      signals: viewerPrefs.signals,
+      permissionMode: viewerPrefs.permissionMode,
+      inbox: viewerPrefs.inbox,
+    }),
+    [viewerPrefs],
   );
   const allSignals = useAllSignals();
   useEffect(() => {
@@ -367,7 +364,7 @@ function App() {
   );
 
   // pixel-agents-secure (local): coffee breaks, naps and the like.
-  const lifeOn = officeReadOnly && viewerPrefs.life;
+  const lifeOn = viewerPrefs.life;
   const lifeEmote = useOfficeLife(lifeOn, getOfficeState, agents, agentTools);
 
   // pixel-agents-secure (local): the agent whose details panel is open
@@ -591,6 +588,10 @@ function App() {
   );
 
   const officeState = getOfficeState();
+  // pixel-agents-secure (local): the viewer's bar, list and box. Always in the
+  // viewer; in the VS Code panel on a desktop-sized office that is not being
+  // edited (the editor's tools take that corner).
+  const showViewerUi = officeReadOnly || (!isMobile && !isDebugMode && !editor.isEditMode);
 
   // pixel-agents-secure (local): the label's extra lines (session title and
   // the most urgent problem signal), only for what this browser turned on.
@@ -875,9 +876,18 @@ function App() {
               panRef={editor.panRef}
               onCloseAgent={officeReadOnly ? undefined : handleCloseAgent}
               alwaysShowOverlay={alwaysShowOverlay}
-              labelExtra={officeReadOnly ? labelExtra : undefined}
-              labelMode={officeReadOnly ? viewerPrefs.labelMode : undefined}
-              labelAttention={officeReadOnly ? labelAttention : undefined}
+              labelExtra={labelExtra}
+              // In the panel "Always Show Labels" (Settings) still means always.
+              labelMode={
+                officeReadOnly
+                  ? viewerPrefs.labelMode
+                  : alwaysShowOverlay
+                    ? 'always'
+                    : viewerPrefs.labelMode === 'smart'
+                      ? 'smart'
+                      : 'hover'
+              }
+              labelAttention={labelAttention}
               signs={officeReadOnly ? roomSigns : undefined}
               emote={lifeOn ? lifeEmote : undefined}
             />
@@ -952,33 +962,35 @@ function App() {
       )}
 
       {/* Also in a narrow window: there is no other way to these controls. */}
-      {officeReadOnly && (
+      {showViewerUi && (
         <ViewerBar
           prefs={viewerPrefs}
           onToggle={toggleViewerPref}
           onLabelMode={setViewerLabelMode}
           onRoomNames={setViewerRoomNames}
+          embedded={!officeReadOnly}
         />
       )}
-      {officeReadOnly && viewerPrefs.agentsPanel && (
+      {showViewerUi && viewerPrefs.agentsPanel && (
         <AgentsPanel
           officeState={officeState}
           agents={agents}
           agentTools={agentTools}
           features={features}
-          openAgentId={detailsAgentId}
+          openAgentId={officeReadOnly ? detailsAgentId : focusedAgentId}
           projectName={listedProjectName}
-          onOpen={openFromInbox}
+          // The panel has no details view: a row goes to the agent's terminal.
+          onOpen={officeReadOnly ? openFromInbox : handleCardSelect}
           onClose={() => toggleViewerPref('agentsPanel')}
         />
       )}
-      {officeReadOnly && features.inbox && !viewerPrefs.agentsPanel && (
+      {showViewerUi && features.inbox && !viewerPrefs.agentsPanel && (
         <AttentionInbox
           officeState={officeState}
           agents={agents}
           agentTools={agentTools}
           features={features}
-          onOpen={openFromInbox}
+          onOpen={officeReadOnly ? openFromInbox : handleCardSelect}
         />
       )}
 
