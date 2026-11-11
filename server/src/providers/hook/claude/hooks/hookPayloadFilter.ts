@@ -80,7 +80,8 @@ function toClaudeShape(raw: Record<string, unknown>): Record<string, unknown> {
   if (raw[AGENT_HINT] !== undefined) {
     return translateForeignPayload(raw[AGENT_HINT], raw[EVENT_HINT], raw);
   }
-  return isCursorPayload(raw) ? translateCursorPayload(raw) : raw;
+  const data = isCursorPayload(raw) ? translateCursorPayload(raw) : raw;
+  return data;
 }
 
 /** The forwarded subset of one hook payload. Never includes `tool_response`,
