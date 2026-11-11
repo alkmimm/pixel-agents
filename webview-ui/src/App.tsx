@@ -58,6 +58,16 @@ import { UsageBars } from './usage/UsageBars.js';
 import { useUsageBridge } from './usage/useUsageBridge.js';
 import { AgentDetailsPanel } from './viewer/AgentDetailsPanel.js';
 import { AgentHoverCard } from './viewer/AgentHoverCard.js';
+import {
+  BADGE_COLOR,
+  NO_FEATURES,
+  sessionTitle,
+  signalBadges,
+  useAllSignals,
+  type ViewerFeatures,
+} from './viewer/agentSignals.js';
+import { agentStatusView } from './viewer/agentStatus.js';
+import { AttentionInbox } from './viewer/AttentionInbox.js';
 import { useAttentionTitle } from './viewer/useAttentionTitle.js';
 import { ViewerBar, useViewerPrefs } from './ViewerBar.js';
 import { canvasDpr } from './viewScale.js';
@@ -242,6 +252,22 @@ function App() {
   // this browser's own (ViewerBar.tsx) and win over the server's settings.
   // Nothing is sent to the server.
   const [viewerPrefs, toggleViewerPref] = useViewerPrefs();
+  // pixel-agents-secure (local): the opt-in features (Opções → Novidades),
+  // only in the read-only office.
+  const features = useMemo<ViewerFeatures>(
+    () =>
+      officeReadOnly
+        ? {
+            sessionTitle: viewerPrefs.sessionTitle,
+            idleTime: viewerPrefs.idleTime,
+            signals: viewerPrefs.signals,
+            permissionMode: viewerPrefs.permissionMode,
+            inbox: viewerPrefs.inbox,
+          }
+        : NO_FEATURES,
+    [officeReadOnly, viewerPrefs],
+  );
+  const allSignals = useAllSignals();
   useEffect(() => {
     if (!officeReadOnly) return;
     if (alwaysShowOverlay !== viewerPrefs.labels) setAlwaysShowOverlay(viewerPrefs.labels);
@@ -493,6 +519,32 @@ function App() {
 
   const officeState = getOfficeState();
 
+  // pixel-agents-secure (local): the label's extra lines (session title and
+  // the most urgent problem signal), only for what this browser turned on.
+  const labelExtra = useCallback(
+    (id: number) => {
+      if (!features.sessionTitle && !features.signals && !features.permissionMode) return undefined;
+      const s = allSignals.get(id);
+      const title = sessionTitle(s, features);
+      const status = agentStatusView(getOfficeState(), id, agentTools);
+      const badge = signalBadges(s, status, undefined, features, Date.now()).find(
+        (b) => b.tone !== 'info',
+      );
+      return title || badge
+        ? {
+            ...(title ? { title } : {}),
+            ...(badge ? { badge: { text: badge.text, color: BADGE_COLOR[badge.tone] } } : {}),
+          }
+        : undefined;
+    },
+    [features, allSignals, agentTools],
+  );
+  // Clicking an agent in the "Precisa de você" box: center on it, open its details.
+  const openFromInbox = useCallback((agentId: number) => {
+    getOfficeState().selectAndFollow(agentId);
+    setDetailsAgentId(agentId);
+  }, []);
+
   // Merged set of Directories the Areas dropdown can map: host-contributed ones plus
   // every distinct Directory an agent has run in this session (deduped by name; name
   // is the areaMappings key / seat-bias identity, path is only the React list key).
@@ -731,6 +783,7 @@ function App() {
               panRef={editor.panRef}
               onCloseAgent={officeReadOnly ? undefined : handleCloseAgent}
               alwaysShowOverlay={alwaysShowOverlay}
+              labelExtra={officeReadOnly ? labelExtra : undefined}
             />
           </div>
 
@@ -745,6 +798,7 @@ function App() {
               subagentTools={subagentTools}
               subagentCharacters={subagentCharacters}
               detailsAgentId={detailsAgentId}
+              features={features}
             />
           )}
           {officeReadOnly && detailsAgentId !== null && (
@@ -756,6 +810,7 @@ function App() {
               subagentCharacters={subagentCharacters}
               besideCards={!isMobile}
               onClose={closeDetails}
+              features={features}
             />
           )}
         </>
@@ -802,6 +857,15 @@ function App() {
 
       {/* Also in a narrow window: there is no other way to these controls. */}
       {officeReadOnly && <ViewerBar prefs={viewerPrefs} onToggle={toggleViewerPref} />}
+      {officeReadOnly && features.inbox && (
+        <AttentionInbox
+          officeState={officeState}
+          agents={agents}
+          agentTools={agentTools}
+          features={features}
+          onOpen={openFromInbox}
+        />
+      )}
 
       {officeReadOnly && (
         <div className="absolute mobile-safe-top left-1/2 -translate-x-1/2 z-10 text-sm text-text-muted pointer-events-none select-none whitespace-nowrap">

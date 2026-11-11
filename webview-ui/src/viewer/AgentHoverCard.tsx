@@ -15,6 +15,14 @@ import { overlayProjection } from '../office/projection.js';
 import type { ToolActivity } from '../office/types.js';
 import { canvasDpr } from '../viewScale.js';
 import { entryText, timeAgo, useAgentActivity } from './agentActivity.js';
+import {
+  BADGE_COLOR,
+  idleText,
+  sessionTitle,
+  signalBadges,
+  useAgentSignals,
+  type ViewerFeatures,
+} from './agentSignals.js';
 import { agentStatusView, agentTitle, TONE_COLOR } from './agentStatus.js';
 
 const CARD_WIDTH = 280;
@@ -31,6 +39,8 @@ interface Props {
   subagentCharacters: SubagentCharacter[];
   /** The agent whose details panel is open: no card over it. */
   detailsAgentId: number | null;
+  /** pixel-agents-secure (local): the opt-in features turned on in this browser. */
+  features: ViewerFeatures;
 }
 
 /** Re-renders every frame while something is hovered, so the card follows
@@ -61,12 +71,14 @@ export function AgentHoverCard({
   subagentTools,
   subagentCharacters,
   detailsAgentId,
+  features,
 }: Props) {
   const hoveredId = useHoveredId(officeState);
   const sub = hoveredId !== null ? subagentCharacters.find((s) => s.id === hoveredId) : undefined;
   // A sub-agent's card talks about its lead, whose history it is.
   const agentId = sub ? sub.parentAgentId : hoveredId;
   const activity = useAgentActivity(agentId);
+  const signals = useAgentSignals(agentId);
   const now = Date.now();
 
   const el = containerRef.current;
@@ -103,6 +115,9 @@ export function AgentHoverCard({
   const contextUsed =
     lead && lead.contextReported ? Math.round((lead.contextTokens / lead.maxContextTokens) * 100) : null;
   const subagents = subagentCharacters.filter((s) => s.parentAgentId === agentId).length;
+  const title = sessionTitle(signals, features);
+  const badges = signalBadges(signals, status, last, features, now);
+  const idle = idleText(status, last, features, now);
 
   return (
     <div
@@ -112,8 +127,8 @@ export function AgentHoverCard({
       data-agent-id={hoveredId}
     >
       <div className="flex items-baseline justify-between gap-6">
-        <span className="text-sm text-text truncate">
-          {sub ? 'Subagente' : agentTitle(officeState, agentId)}
+        <span className="text-sm text-text truncate" title={title}>
+          {sub ? 'Subagente' : (title ?? agentTitle(officeState, agentId))}
         </span>
         {activity?.project && (
           <span className="text-2xs text-text-muted truncate" title={activity.project}>
@@ -136,10 +151,16 @@ export function AgentHoverCard({
               style={{ background: TONE_COLOR[status.tone] }}
             />
             <span className="text-xs text-text">{status.text}</span>
-            {status.since !== undefined && (
+            {status.since !== undefined && !idle && (
               <span className="text-2xs text-text-muted">{timeAgo(status.since, now)}</span>
             )}
+            {idle && <span className="text-2xs text-text-muted">{idle}</span>}
           </div>
+          {badges.map((b) => (
+            <span key={b.key} className="text-2xs" style={{ color: BADGE_COLOR[b.tone] }}>
+              {b.text}
+            </span>
+          ))}
           {status.tool && <span className="text-xs text-text break-words">{status.tool}</span>}
           {recent.length > 0 && (
             <div className="flex flex-col">

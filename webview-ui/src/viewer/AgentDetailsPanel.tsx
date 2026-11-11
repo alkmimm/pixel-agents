@@ -27,6 +27,15 @@ import {
   useConversationOffered,
   useNow,
 } from './agentActivity.js';
+import {
+  BADGE_COLOR,
+  idleText,
+  permissionModeText,
+  sessionTitle,
+  signalBadges,
+  useAgentSignals,
+  type ViewerFeatures,
+} from './agentSignals.js';
 import { agentStatusView, agentTitle, TONE_COLOR } from './agentStatus.js';
 
 type Tab = 'activity' | 'conversation';
@@ -173,6 +182,8 @@ interface Props {
    *  not a bar below it (narrow window). */
   besideCards: boolean;
   onClose: () => void;
+  /** pixel-agents-secure (local): the opt-in features turned on in this browser. */
+  features: ViewerFeatures;
 }
 
 export function AgentDetailsPanel({
@@ -182,10 +193,12 @@ export function AgentDetailsPanel({
   subagentCharacters,
   besideCards,
   onClose,
+  features,
 }: Props) {
   const rightGap = besideCards ? TERMINAL_SIDEBAR_WIDTH_PX + 8 : 8;
   const [tab, setTab] = useState<Tab>('activity');
   const activity = useAgentActivity(agentId);
+  const signals = useAgentSignals(agentId);
   const offered = useConversationOffered();
   const now = useNow(5_000);
   // Re-read the character's live state (it is mutable, not React state).
@@ -209,6 +222,12 @@ export function AgentDetailsPanel({
   const contextUsed =
     ch && ch.contextReported ? Math.round((ch.contextTokens / ch.maxContextTokens) * 100) : null;
   const subagents = subagentCharacters.filter((s) => s.parentAgentId === agentId);
+  const title = sessionTitle(signals, features);
+  const lastEntry = entries[entries.length - 1];
+  const badges = signalBadges(signals, status, lastEntry, features, now).filter(
+    (b) => b.key !== 'mode',
+  );
+  const idle = idleText(status, lastEntry, features, now);
 
   return (
     <div
@@ -229,7 +248,12 @@ export function AgentDetailsPanel({
       <div className="flex items-start gap-8">
         {ch && <CharacterMugShot palette={ch.palette} repeat={ch.repeat} />}
         <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-base text-text truncate">{agentTitle(officeState, agentId)}</span>
+          <span className="text-base text-text truncate" title={title}>
+            {title ?? agentTitle(officeState, agentId)}
+          </span>
+          {title && (
+            <span className="text-2xs text-text-muted truncate">{agentTitle(officeState, agentId)}</span>
+          )}
           {activity?.project && (
             <span className="text-xs text-text-muted truncate" title={activity.project}>
               {activity.project}
@@ -241,10 +265,30 @@ export function AgentDetailsPanel({
               style={{ background: TONE_COLOR[status.tone] }}
             />
             <span className="text-xs text-text">{status.text}</span>
-            {status.since !== undefined && (
+            {status.since !== undefined && !idle && (
               <span className="text-2xs text-text-muted">desde {timeAgo(status.since, now)}</span>
             )}
+            {idle && <span className="text-2xs text-text-muted">{idle}</span>}
           </div>
+          {badges.map((b) => (
+            <span key={b.key} className="text-2xs" style={{ color: BADGE_COLOR[b.tone] }}>
+              {b.text}
+            </span>
+          ))}
+          {features.permissionMode && signals?.permissionMode && (
+            <span
+              className="text-2xs"
+              style={{
+                color:
+                  signals.permissionMode === 'bypassPermissions' ||
+                  signals.permissionMode === 'dontAsk'
+                    ? BADGE_COLOR.alert
+                    : BADGE_COLOR.info,
+              }}
+            >
+              Modo de permissão: {permissionModeText(signals.permissionMode)}
+            </span>
+          )}
         </div>
         <Button variant="ghost" size="icon" onClick={onClose} title="Fechar (Esc)" aria-label="Fechar">
           <PixelIcon name="close" />

@@ -47,6 +47,9 @@ interface ToolOverlayProps {
   /** Absent in a read-only office (pixel-agents-secure): no × on the label. */
   onCloseAgent?: (id: number) => void;
   alwaysShowOverlay: boolean;
+  /** pixel-agents-secure (local): extra lines for an agent's label (the
+   *  viewer's opt-in session title and problem signal). Unset: none. */
+  labelExtra?: (id: number) => { title?: string; badge?: { text: string; color: string } } | undefined;
 }
 
 /** Derive a short human-readable activity string from tools/status */
@@ -113,6 +116,7 @@ export function ToolOverlay({
   panRef,
   onCloseAgent,
   alwaysShowOverlay,
+  labelExtra,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -282,6 +286,7 @@ export function ToolOverlay({
 
         // Team info
         const teamRoleLabel = ch.isTeamLead ? 'LEAD' : ch.agentName || null;
+        const extra = isSub ? undefined : labelExtra?.(id);
 
         // Context gauge. Every agent gets one — lead, teammate, adopted,
         // headless — as soon as the server reports its context (a cleared
@@ -329,6 +334,14 @@ export function ToolOverlay({
                       {teamRoleLabel}
                     </span>
                   )}
+                  {extra?.title && (
+                    <span
+                      className="overflow-hidden text-ellipsis block leading-none text-accent-bright"
+                      style={{ fontSize: '18px' }}
+                    >
+                      {extra.title}
+                    </span>
+                  )}
                   <span
                     className="overflow-hidden text-ellipsis block leading-none"
                     style={{
@@ -338,6 +351,14 @@ export function ToolOverlay({
                   >
                     {activityText}
                   </span>
+                  {extra?.badge && (
+                    <span
+                      className="overflow-hidden text-ellipsis block leading-none"
+                      style={{ fontSize: '18px', color: extra.badge.color }}
+                    >
+                      {extra.badge.text}
+                    </span>
+                  )}
                   {ch.directoryName && (
                     <span className="text-2xs leading-none overflow-hidden text-ellipsis block">
                       {ch.directoryName}

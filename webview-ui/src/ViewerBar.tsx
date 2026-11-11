@@ -12,8 +12,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from './components/ui/Button.js';
 import { Checkbox } from './components/ui/Checkbox.js';
 import { canPictureInPicture, fitOffice, openPictureInPicture } from './pictureInPicture.js';
+import type { ViewerFeatures } from './viewer/agentSignals.js';
 
-export interface ViewerPrefs {
+export interface ViewerPrefs extends ViewerFeatures {
   /** Names and activity above every character, not only on hover. */
   labels: boolean;
   /** Bubbles and labels over the characters at all. */
@@ -32,6 +33,12 @@ const DEFAULT_PREFS: ViewerPrefs = {
   ghosts: false,
   music: true,
   sound: true,
+  // Novidades: off until this browser turns them on.
+  sessionTitle: false,
+  idleTime: false,
+  signals: false,
+  permissionMode: false,
+  inbox: false,
 };
 const STORAGE_KEY = 'pixel-agents-secure.viewer-prefs';
 
@@ -44,11 +51,28 @@ const OPTIONS: Array<{ key: keyof ViewerPrefs; label: string }> = [
   { key: 'sound', label: 'Som de aviso' },
 ];
 
+/** pixel-agents-secure (local): opt-in features (agentSignals.ts). */
+const FEATURE_OPTIONS: Array<{ key: keyof ViewerPrefs; label: string; title: string }> = [
+  {
+    key: 'sessionTitle',
+    label: 'Título da sessão',
+    title: 'O nome dado com /rename (o título automático só com a aba Conversa ligada)',
+  },
+  { key: 'idleTime', label: 'Tempo parado', title: 'Há quanto tempo cada agente está sem atividade' },
+  {
+    key: 'signals',
+    label: 'Sinais de problema',
+    title: 'Erros seguidos, a mesma chamada repetida, sem novidade há 10 min, sem cota',
+  },
+  { key: 'permissionMode', label: 'Modo de permissão', title: 'Destaca sessões em bypass ou dontAsk' },
+  { key: 'inbox', label: 'Caixa “Precisa de você”', title: 'Lista quem espera você; clique centraliza' },
+];
+
 function loadPrefs(): ViewerPrefs {
   const prefs = { ...DEFAULT_PREFS };
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, unknown>;
-    for (const { key } of OPTIONS) {
+    for (const { key } of [...OPTIONS, ...FEATURE_OPTIONS]) {
       if (typeof saved[key] === 'boolean') prefs[key] = saved[key];
     }
   } catch {
@@ -101,6 +125,12 @@ export function ViewerBar({
               checked={prefs[key]}
               onChange={() => onToggle(key)}
             />
+          ))}
+          <span className="text-2xs text-text-muted mt-4">Novidades</span>
+          {FEATURE_OPTIONS.map(({ key, label, title }) => (
+            <span key={key} title={title}>
+              <Checkbox label={label} checked={prefs[key]} onChange={() => onToggle(key)} />
+            </span>
           ))}
         </div>
       )}

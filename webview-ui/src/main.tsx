@@ -10,6 +10,7 @@ import App from './App.tsx';
 import { prepareResizeObservers } from './pictureInPicture';
 import { isBrowserRuntime } from './runtime';
 import { startActivityFeed } from './viewer/agentActivity';
+import { startSignalsFeed } from './viewer/agentSignals';
 
 async function main() {
   // browserMock is for Vite dev mode only (UI prototyping without a server).
@@ -23,6 +24,7 @@ async function main() {
     prepareResizeObservers();
     // Listening before the first message, so the history sent on connect is kept.
     startActivityFeed();
+    startSignalsFeed();
   }
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
