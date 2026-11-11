@@ -3,7 +3,11 @@
  * Those waiting on you first, then one group per project. Free of React and
  * the DOM, so it is tested directly.
  */
-import type { StatusTone } from './agentStatus.js';
+// The tone's type from signalText.ts, not agentStatus.ts: that one reaches the
+// DOM, and this file is compiled for the tests without it.
+import type { StatusLike } from './signalText.js';
+
+type StatusTone = StatusLike['tone'];
 
 export interface AgentRowLike {
   id: number;

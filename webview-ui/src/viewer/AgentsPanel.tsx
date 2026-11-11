@@ -102,8 +102,9 @@ export function AgentsPanel({
   return (
     <div
       // Right of the zoom buttons (top-left column), down to above the bar.
-      className="absolute z-20 pixel-panel flex flex-col gap-2 px-8 py-6 overflow-y-auto pointer-events-auto"
-      style={{ left: 64, top: 8, width: 280, maxHeight: 'calc(100% - 72px)' }}
+      // Under the bar's options (z 20), which open over its lower part.
+      className="absolute pixel-panel flex flex-col gap-2 px-8 py-6 overflow-y-auto pointer-events-auto"
+      style={{ left: 64, top: 8, width: 280, maxHeight: 'calc(100% - 72px)', zIndex: 15 }}
       data-testid="agents-panel"
       onPointerDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}

@@ -410,7 +410,13 @@ export class OfficeState {
       }
     }
 
-    // Whoever has a room and sits elsewhere moves in, while it has a free seat.
+    this.moveIntoRooms(snap);
+  }
+
+  /** Whoever has a room and sits elsewhere moves in, while it has a free
+   *  seat: walking, or at once with `snap`. (An agent can arrive with a seat
+   *  the server remembered for it, outside its room.) */
+  moveIntoRooms(snap: boolean): void {
     for (const ch of this.characters.values()) {
       if (!takesSeat(ch) || !ch.directoryName) continue;
       const labels = this.roomAreas[ch.directoryName];

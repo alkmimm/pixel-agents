@@ -12,7 +12,11 @@
  * useOfficeLife.ts applies them to the office once a second. Everything is
  * drawn from what the viewer already knows; nothing is sent to the server.
  */
-import type { StatusTone } from './agentStatus.js';
+// The tone's type from signalText.ts, not agentStatus.ts: that one reaches the
+// DOM, and this file is compiled for the tests without it.
+import type { StatusLike } from './signalText.js';
+
+type StatusTone = StatusLike['tone'];
 
 /** A turn at least this long is worth celebrating. */
 export const CELEBRATE_MIN_MS = 5 * 60_000;

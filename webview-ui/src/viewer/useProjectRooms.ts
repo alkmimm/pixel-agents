@@ -87,7 +87,11 @@ export function useProjectRooms(
     const plan = planRooms(planRef.current, counts, Date.now());
     const unchanged = sameRooms(plan, planRef.current) && !freshBaseRef.current;
     planRef.current = plan;
-    if (unchanged) return;
+    if (unchanged) {
+      // Same rooms; someone may have arrived seated outside its own.
+      if (plan.length > 0) os.moveIntoRooms(false);
+      return;
+    }
 
     const shown = os.getLayout();
     const composed = composeOffice(base, plan, getBlockedTiles(base.furniture));
