@@ -155,11 +155,13 @@ export class SessionProcessIndex {
   }
 
   private stateOf(proc: SessionProcess): ProcessState {
-    if (proc.pidDomain !== undefined) {
-      // e.g. `linux:<machine>:pid:[4026532221]`: only our own namespace is ours to judge.
-      const ns = this.namespace();
-      if (ns === null || !proc.pidDomain.endsWith(ns)) return 'unknown';
-    }
+    // No readable /proc/self/ns/pid: not Linux (the extension on Windows or
+    // macOS), or a /proc we cannot trust. Nothing can be judged there; a
+    // missing /proc/<pid> would otherwise read as "dead" for every session.
+    const ns = this.namespace();
+    if (ns === null) return 'unknown';
+    // e.g. `linux:<machine>:pid:[4026532221]`: only our own namespace is ours to judge.
+    if (proc.pidDomain !== undefined && !proc.pidDomain.endsWith(ns)) return 'unknown';
     let stat: string;
     try {
       stat = fs.readFileSync(path.join(this.procRoot, String(proc.pid), 'stat'), 'utf-8');
@@ -173,6 +175,17 @@ export class SessionProcessIndex {
 
   /** 'dead' only when every recorded process of the session is known gone. */
   sessionState(sessionId: string): ProcessState {
+    const before = this.refreshedAt;
+    const state = this.judge(sessionId);
+    // Already judged on a fresh index: that answer stands.
+    if (state !== 'dead' || this.refreshedAt !== before) return state;
+    // A resumed session's new <pid>.json may be younger than the index: look
+    // again before calling it dead.
+    this.refreshedAt = -Infinity;
+    return this.judge(sessionId);
+  }
+
+  private judge(sessionId: string): ProcessState {
     const procs = this.processesOf(sessionId);
     if (procs.length === 0) return 'unknown';
     let dead = 0;

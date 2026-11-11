@@ -66,6 +66,9 @@ const VERB = /^[a-z][a-z0-9-]{0,23}$/;
 /** A leading `NAME=value` environment assignment. */
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
+/** What quoted text is replaced with: no program, verb or name contains it. */
+const QUOTED = '\u0001';
+
 /** Longest label: program, verb and script name with their spaces. */
 export const BASH_LABEL_MAX_LENGTH = 32 + 1 + 24 + 1 + 24;
 
@@ -76,7 +79,9 @@ function stageLabel(stage: string): { program: string; label: string } | null {
   const first = words[i];
   if (first === undefined) return null;
   // Only the last path segment: `./scripts/build-vsix.sh` -> `build-vsix.sh`.
-  const program = first.replace(/^["']|["']$/g, '').split(/[\\/]/).pop() ?? '';
+  // A word with quoted or escaped text in it never qualifies.
+  if (first.includes(QUOTED)) return null;
+  const program = first.split(/[\\/]/).pop() ?? '';
   if (!PROGRAM.test(program)) return null;
   let label = program;
   const verb = words[i + 1];
@@ -94,10 +99,18 @@ function stageLabel(stage: string): { program: string; label: string } | null {
  *  when no word of it qualifies. Never any other word of the command. */
 export function bashCommandLabel(command: unknown): string {
   if (typeof command !== 'string') return '';
-  // Top-level separators, then pipe stages. Quotes are not parsed: a quoted
-  // separator can only make the label name another plain program word.
+  // Escaped characters and quoted text are removed before anything else: a
+  // value can span words (`PGPASSWORD="abc def" psql`, `TOKEN=abc\ def psql`)
+  // and its second word would otherwise pass for a program. An unclosed quote
+  // takes the rest of the command with it.
+  const unquoted = command
+    .slice(0, 4096)
+    .replace(/\\[\s\S]/g, QUOTED)
+    .replace(/"(?:[^"\\]|\\.)*"|'[^']*'|`[^`]*`|\$\([^)]*\)/g, QUOTED)
+    .replace(/["'`].*$/s, QUOTED);
+  // Top-level separators, then pipe stages.
   let fallback = '';
-  for (const segment of command.slice(0, 4096).split(/&&|\|\||[;\n]/)) {
+  for (const segment of unquoted.split(/&&|\|\||[;\n]/)) {
     for (const stage of segment.split('|')) {
       const found = stageLabel(stage);
       if (!found) continue;

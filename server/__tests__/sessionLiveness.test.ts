@@ -83,6 +83,24 @@ describe('SessionProcessIndex', () => {
     expect(index.sessionState('never-seen')).toBe('unknown');
   });
 
+  it('without a readable /proc (Windows, macOS) nothing is ever dead', () => {
+    const sessions = session(300, 'gone-session');
+    session(400, 'with-domain', { pidDomain: 'linux:abc:pid:[1]' });
+    const noProc = path.join(dir, 'no-proc');
+    const index = new SessionProcessIndex(sessions, noProc, 0);
+    expect(index.sessionState('gone-session')).toBe('unknown');
+    expect(index.sessionState('with-domain')).toBe('unknown');
+  });
+
+  it('a session resumed under a new pid is not called dead on a stale index', () => {
+    const proc = fakeProc(100, '500');
+    const sessions = session(300, 'resumed'); // the old, dead process
+    const index = new SessionProcessIndex(sessions, proc, 60_000);
+    expect(index.sessionState('other')).toBe('unknown'); // index read now
+    session(100, 'resumed'); // the new process, written after the read
+    expect(index.sessionState('resumed')).toBe('alive');
+  });
+
   it('ignores the .key files and anything that is not <pid>.json', () => {
     const proc = fakeProc(100, '500');
     const sessions = session(100, 'alive-session');
