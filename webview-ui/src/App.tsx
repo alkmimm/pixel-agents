@@ -69,6 +69,7 @@ import {
 import { agentStatusView } from './viewer/agentStatus.js';
 import { AgentsPanel } from './viewer/AgentsPanel.js';
 import { AttentionInbox } from './viewer/AttentionInbox.js';
+import { useOfficeLife } from './viewer/useOfficeLife.js';
 import { useProjectRooms } from './viewer/useProjectRooms.js';
 import { useAttentionTitle } from './viewer/useAttentionTitle.js';
 import { ViewerBar, useViewerPrefs } from './ViewerBar.js';
@@ -319,6 +320,10 @@ function App() {
       })),
     [projectRooms],
   );
+
+  // pixel-agents-secure (local): coffee breaks, naps and the like.
+  const lifeOn = officeReadOnly && viewerPrefs.life;
+  const lifeEmote = useOfficeLife(lifeOn, getOfficeState, agents, agentTools);
 
   // pixel-agents-secure (local): the agent whose details panel is open
   // (read-only office only), and the tab title counting who needs you.
@@ -821,6 +826,7 @@ function App() {
               labelMode={officeReadOnly ? viewerPrefs.labelMode : undefined}
               labelAttention={officeReadOnly ? labelAttention : undefined}
               signs={officeReadOnly ? roomSigns : undefined}
+              emote={lifeOn ? lifeEmote : undefined}
             />
           </div>
 

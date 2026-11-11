@@ -29,6 +29,8 @@ export interface ViewerPrefs extends ViewerFeatures {
   agentsPanel: boolean;
   /** One room per project, opened and closed by who is in (viewer/projectRooms.ts). */
   rooms: boolean;
+  /** Coffee breaks, naps and the like (viewer/officeLife.ts). */
+  life: boolean;
 }
 
 /** The on/off preferences (everything but the label mode). */
@@ -43,6 +45,7 @@ const DEFAULT_PREFS: ViewerPrefs = {
   sound: true,
   agentsPanel: false,
   rooms: false,
+  life: false,
   // Novidades: off until this browser turns them on.
   sessionTitle: false,
   idleTime: false,
@@ -80,6 +83,12 @@ const FEATURE_OPTIONS: Array<{ key: ViewerToggle; label: string; title: string }
     label: 'Salas por projeto',
     title:
       'Cada projeto (com seus worktrees) ganha uma sala, que abre com o primeiro agente e fecha 10 min depois do último sair',
+  },
+  {
+    key: 'life',
+    label: 'Vida no escritório',
+    title:
+      'Pausa para o café, cochilo de quem está parado há 20 min, comemoração depois de um turno longo, conversa de corredor e o bicho visitando quem espera você',
   },
 ];
 

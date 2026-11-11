@@ -1349,6 +1349,72 @@ export class OfficeState {
     ch.contextReported = true;
   }
 
+  // ── pixel-agents-secure (local): office life (viewer/officeLife.ts) ──
+  // Small things an idle agent does. None of them touches a working agent:
+  // the moment it becomes active, the usual walk back to its seat takes over.
+
+  /** Whether an agent is free for a bit of office life: idle, in the office
+   *  to stay, and not in the middle of a step. */
+  private atLeisure(ch: Character | undefined): ch is Character {
+    return (
+      ch !== undefined &&
+      !ch.isSubagent &&
+      !ch.isActive &&
+      !ch.matrixEffect &&
+      ch.state !== CharacterState.WALK
+    );
+  }
+
+  /** Walk an idle agent to a tile. False when it is busy or there is no way. */
+  sendOnErrand(id: number, col: number, row: number): boolean {
+    const ch = this.characters.get(id);
+    if (!this.atLeisure(ch)) return false;
+    const path = this.withOwnSeatUnblocked(ch, () =>
+      findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles),
+    );
+    if (path.length === 0) return false;
+    ch.path = path;
+    ch.moveProgress = 0;
+    ch.state = CharacterState.WALK;
+    ch.frame = 0;
+    ch.frameTimer = 0;
+    ch.seatTimer = 0;
+    return true;
+  }
+
+  /** Keep an idle, standing agent where it is for `sec` seconds; with
+   *  `thenHome`, its next walk is back to its seat. */
+  holdStill(id: number, sec: number, thenHome: boolean): void {
+    const ch = this.characters.get(id);
+    if (!this.atLeisure(ch) || ch.state !== CharacterState.IDLE) return;
+    ch.wanderTimer = Math.max(ch.wanderTimer, sec);
+    if (thenHome) ch.wanderCount = ch.wanderLimit;
+  }
+
+  /** Keep an idle agent resting in its chair at least `sec` seconds more.
+   *  False when it is not resting in a chair. */
+  holdSeat(id: number, sec: number): boolean {
+    const ch = this.characters.get(id);
+    if (!this.atLeisure(ch) || ch.state !== CharacterState.TYPE) return false;
+    ch.seatTimer = Math.max(ch.seatTimer, sec);
+    return true;
+  }
+
+  /** Send a pet that is doing nothing to an agent. The pet's id, or null. */
+  sendPetTo(agentId: number, maxSec: number): string | null {
+    if (!this.characters.has(agentId)) return null;
+    const pet = this.pets.find((p) => p.state === PetState.IDLE);
+    if (!pet) return null;
+    pet.state = PetState.FOLLOW;
+    pet.followTargetId = agentId;
+    pet.followDuration = 0;
+    pet.followRecalcTimer = 0;
+    pet.followDurationLimit = maxSec;
+    pet.frame = 0;
+    pet.frameTimer = 0;
+    return pet.id;
+  }
+
   /** pixel-agents-secure (local): whether anything is moving (someone walks,
    *  appears or leaves, a pet roams, the camera follows), so the render loop
    *  knows to draw smoothly; otherwise it draws at a low rate. */
