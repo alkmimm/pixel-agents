@@ -245,6 +245,13 @@ export function ViewerBar({
               <Checkbox label={label} checked={prefs[key]} onChange={() => onToggle(key)} />
             </span>
           ))}
+        <span className="text-2xs text-text-muted mt-4">Outros agentes</span>
+          <span
+            className="text-2xs text-text-muted"
+            title="O Cursor executa por conta própria os hooks do Claude Code (Third-Party Imports, ligado por padrão no Cursor). Não há o que ligar aqui."
+          >
+            Cursor: aparece sozinho, com o nome “Cursor”.
+          </span>
         </div>
       )}
       <div className="flex flex-wrap gap-4 shrink-0 pointer-events-auto">
