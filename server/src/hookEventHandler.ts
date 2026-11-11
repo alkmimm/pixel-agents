@@ -8,7 +8,7 @@ import type { SessionRouter } from './sessionRouter.js';
 import { getInlineTeammates, hasInlineTeammates, hasPromotedBackgroundAgent } from './teamUtils.js';
 import { cancelPermissionTimer, cancelWaitingTimer } from './timerManager.js';
 import { notifyBackgroundAgentCompleted } from './transcriptParser.js';
-import { CURSOR_AGENT_KIND } from './providers/hook/claude/hooks/cursorPayload.js';
+import { isAgentKind } from './providers/hook/claude/hooks/agentKinds.js';
 import type { AgentState } from './types.js';
 
 const debug = process.env.PIXEL_AGENTS_DEBUG !== '0';
@@ -266,12 +266,12 @@ export class HookEventHandler {
       return;
     }
 
-    // pixel-agents-secure (local): a Cursor session (cursorPayload.ts) is taken
-    // in from whichever event comes first. Cursor does not send its session
-    // start again to a server that started after it, and there is no
-    // transcript to find the session by.
+    // pixel-agents-secure (local): a session of another agent (Cursor, Copilot,
+    // Gemini: agentKinds.ts) is taken in from whichever event comes first.
+    // They do not send their session start again to a server that started
+    // after them, and there is no transcript to find the session by.
     const cursorCwd =
-      (event as Record<string, unknown>).agent_kind === CURSOR_AGENT_KIND &&
+      isAgentKind((event as Record<string, unknown>).agent_kind) &&
       typeof event.cwd === 'string' &&
       event.cwd.length > 0
         ? event.cwd

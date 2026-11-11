@@ -26,10 +26,7 @@
  * again by the server's route.
  */
 
-/** Marks the forwarded event as Cursor's, and prefixes its session id so it can
- *  never be taken for (or collide with) a Claude Code session. */
-export const CURSOR_AGENT_KIND = 'cursor';
-export const CURSOR_SESSION_PREFIX = 'cursor-';
+import { kindSessionId } from './agentKinds.js';
 
 const MAX_ID = 128;
 const MAX_PATH = 512;
@@ -85,8 +82,10 @@ export function translateCursorPayload(data: Record<string, unknown>): Record<st
 
   const out: Record<string, unknown> = {
     hook_event_name: name,
-    session_id: id.startsWith(CURSOR_SESSION_PREFIX) ? id : CURSOR_SESSION_PREFIX + id,
-    agent_kind: CURSOR_AGENT_KIND,
+    // Marked as Cursor's, and prefixed so it can never be taken for (or
+    // collide with) a Claude Code session (agentKinds.ts).
+    session_id: kindSessionId('cursor', id),
+    agent_kind: 'cursor',
   };
   const roots = Array.isArray(data.workspace_roots) ? data.workspace_roots : [];
   const cwd = text(data.cwd, MAX_PATH) ?? text(roots[0], MAX_PATH);

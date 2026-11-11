@@ -587,6 +587,13 @@ function App() {
     [handleCardSelect],
   );
 
+  // pixel-agents-secure (local): another agent's hooks (Copilot, Gemini),
+  // turned on or off from Opções. The server answers with the hooksStatus the
+  // checkbox renders, as for Claude Code's own.
+  const setAgentHooks = useCallback((providerId: string, enabled: boolean) => {
+    transport.send({ type: 'setHooksEnabled', providerId, enabled });
+  }, []);
+
   const officeState = getOfficeState();
   // pixel-agents-secure (local): the viewer's bar, list and box. Always in the
   // viewer; in the VS Code panel on a desktop-sized office that is not being
@@ -969,6 +976,9 @@ function App() {
           onLabelMode={setViewerLabelMode}
           onRoomNames={setViewerRoomNames}
           embedded={!officeReadOnly}
+          // Only the panel installs anything; the viewer just watches.
+          agentHooks={officeReadOnly ? undefined : hooksInstalled}
+          onAgentHooks={officeReadOnly ? undefined : setAgentHooks}
         />
       )}
       {showViewerUi && viewerPrefs.agentsPanel && (

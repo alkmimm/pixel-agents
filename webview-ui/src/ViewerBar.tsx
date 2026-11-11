@@ -105,6 +105,25 @@ const FEATURE_OPTIONS: Array<{ key: ViewerToggle; label: string; title: string }
   },
 ];
 
+/** The agents whose hooks the panel can install (server: providers/hook/others/).
+ *  One shows only when the server says the agent is on this machine. */
+const OTHER_AGENTS: Array<{ id: string; label: string; writes: string; undo: string }> = [
+  {
+    id: 'copilot',
+    label: 'GitHub Copilot',
+    writes:
+      'Grava um arquivo, ~/.copilot/hooks/pixel-agents.json, e nada mais do Copilot. Ele passa a rodar o hook do Pixel Agents no início e fim de sessão, no uso de ferramenta e no fim do turno.',
+    undo: 'Desligar apaga o arquivo.',
+  },
+  {
+    id: 'gemini',
+    label: 'Gemini CLI',
+    writes:
+      'Acrescenta entradas de hook em ~/.gemini/settings.json (antes, guarda uma cópia do arquivo ao lado) e não muda mais nada nele. O Gemini passa a rodar o hook do Pixel Agents no início e fim de sessão, no uso de ferramenta, no fim do turno e no pedido de aprovação.',
+    undo: 'Desligar remove exatamente essas entradas.',
+  },
+];
+
 /** Not offered inside the VS Code panel (see `embedded`). */
 const VIEWER_ONLY: ViewerToggle[] = ['rooms', 'compactOffice'];
 /** Where the bar sits inside the VS Code panel: over the panel's toolbar. */
@@ -162,6 +181,8 @@ export function ViewerBar({
   onLabelMode,
   onRoomNames,
   embedded = false,
+  agentHooks,
+  onAgentHooks,
 }: {
   prefs: ViewerPrefs;
   onToggle: (key: ViewerToggle) => void;
@@ -171,8 +192,14 @@ export function ViewerBar({
    *  panel's own Settings do not already have (and without the project rooms,
    *  which redraw the layout the panel edits and saves). */
   embedded?: boolean;
+  /** Whether each other agent found on this machine has its hooks in
+   *  (`hooksStatus` by provider id). Only the VS Code panel can change it. */
+  agentHooks?: Record<string, boolean>;
+  onAgentHooks?: (agent: string, enabled: boolean) => void;
 }) {
   const [optionsOpen, setOptionsOpen] = useState(false);
+  /** The agent whose terms are on screen, waiting for "Instalar". */
+  const [asking, setAsking] = useState<string | null>(null);
   const [floating, setFloating] = useState(false);
 
   const float = useCallback(() => {
@@ -252,6 +279,48 @@ export function ViewerBar({
           >
             Cursor: aparece sozinho, com o nome “Cursor”.
           </span>
+          {onAgentHooks &&
+            OTHER_AGENTS.filter(({ id }) => agentHooks?.[id] !== undefined).map(
+              ({ id, label, writes, undo }) => (
+                <div key={id} className="flex flex-col gap-4" data-testid={`agent-hooks-${id}`}>
+                  <span title={`${writes} ${undo}`}>
+                    <Checkbox
+                      label={label}
+                      checked={agentHooks?.[id] === true}
+                      onChange={() => {
+                        // Turning on shows what will be written first; off is immediate.
+                        if (agentHooks?.[id] === true) onAgentHooks(id, false);
+                        else setAsking((current) => (current === id ? null : id));
+                      }}
+                    />
+                  </span>
+                  {asking === id && agentHooks?.[id] !== true && (
+                    <div className="flex flex-col gap-4 text-2xs text-text-muted" style={{ maxWidth: 260 }}>
+                      <span>{writes}</span>
+                      <span>
+                        Do hook só saem id da sessão, pasta, nome da ferramenta, nome do arquivo e o
+                        programa de um comando; nunca prompts, respostas ou saída de ferramenta.
+                      </span>
+                      <span>{undo}</span>
+                      <div className="flex gap-4">
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setAsking(null);
+                            onAgentHooks(id, true);
+                          }}
+                        >
+                          Instalar
+                        </Button>
+                        <Button size="sm" onClick={() => setAsking(null)}>
+                          Cancelar
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ),
+            )}
         </div>
       )}
       <div className="flex flex-wrap gap-4 shrink-0 pointer-events-auto">

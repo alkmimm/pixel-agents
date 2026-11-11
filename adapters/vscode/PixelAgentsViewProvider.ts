@@ -70,6 +70,7 @@ import {
   copyHookScript,
   hookProviderById,
   hookProviders,
+  otherAgentProviders,
 } from '../../server/src/providers/index.js';
 import { recentCharactersMessage, recordCharacterUse } from '../../server/src/recentCharacters.js';
 import { PixelAgentsServer } from '../../server/src/server.js';
@@ -286,6 +287,14 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         if (hooksEnabled) {
           void this.installHooksIfConsented(config.port, config.token);
         }
+        // pixel-agents-secure (local): another agent's hooks, turned on in the
+        // panel, run the same script: bring it up to this version's copy even
+        // when Claude Code's own hooks are off.
+        void Promise.all(
+          otherAgentProviders.map((p) => p.areHooksInstalled().catch(() => false)),
+        ).then((installed) => {
+          if (installed.some(Boolean)) copyHookScript(this.context.extensionPath);
+        });
         // An installed usage bridge runs the script from ~/.pixel-agents/hooks/:
         // bring it up to this version's copy.
         for (const provider of hookProviders) {
@@ -313,7 +322,11 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
   ): Promise<void> {
     // The bundled claude-hook.js script belongs to the Claude provider alone;
     // another provider's install must neither copy it nor be blocked by it.
-    if (provider.id === claudeProvider.id && !copyHookScript(this.context.extensionPath)) {
+    // pixel-agents-secure (local): the other agents' entries (Copilot, Gemini)
+    // run that same script, so installing theirs needs it in place as well.
+    const runsBundledScript =
+      provider.id === claudeProvider.id || otherAgentProviders.some((p) => p.id === provider.id);
+    if (runsBundledScript && !copyHookScript(this.context.extensionPath)) {
       vscode.window.showErrorMessage(
         'Pixel Agents: could not install the hook script — hooks not installed.',
       );
@@ -767,6 +780,18 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
             provider,
           );
           if (consentRequest) this.webview?.postMessage(consentRequest);
+        }
+
+        // pixel-agents-secure (local): the other agents found on this machine
+        // (Copilot, Gemini), each with whether its hooks are in. No consent
+        // request: the panel's own switch asks, with the terms beside it.
+        for (const provider of otherAgentProviders) {
+          if (!provider.isPresent()) continue;
+          this.webview?.postMessage({
+            type: 'hooksStatus',
+            providerId: provider.id,
+            installed: await provider.areHooksInstalled().catch(() => false),
+          });
         }
 
         // Usage bars: install state and the last known account usage.

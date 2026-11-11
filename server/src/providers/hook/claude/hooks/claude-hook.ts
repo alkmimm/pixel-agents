@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 
 import { HOOK_API_PREFIX } from '../../../../constants.js';
+import { AGENT_HINT, EVENT_HINT } from './foreignPayload.js';
 import { filterHookPayload } from './hookPayloadFilter.js';
 import { liveServers, postToServer } from './serverRegistry.js';
 
@@ -34,6 +35,18 @@ function hookDebug(line: string): void {
   }
 }
 
+/**
+ * pixel-agents-secure (local): started by another agent's hook entry
+ * (`--agent=copilot --event=preToolUse`; providers/hook/others/). Those agents
+ * read this script's output as the hook's answer, so the answer is written
+ * first and is always "no decision": whatever happens after this line, the
+ * office never allows, denies or changes anything the agent does.
+ */
+const arg = (name: string): string | undefined =>
+  process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
+const otherAgent = /^(copilot|gemini)$/.test(arg('agent') ?? '') ? arg('agent') : undefined;
+if (otherAgent) process.stdout.write('{}\n');
+
 async function main(): Promise<void> {
   let input = '';
   for await (const chunk of process.stdin) input += chunk;
@@ -44,6 +57,11 @@ async function main(): Promise<void> {
   } catch {
     hookDebug('exit reason=bad-stdin');
     process.exit(0);
+  }
+
+  if (otherAgent) {
+    data[AGENT_HINT] = otherAgent;
+    data[EVENT_HINT] = arg('event');
   }
 
   // pixel-agents-secure (local): started by Cursor (it runs Claude Code's hooks
@@ -72,7 +90,7 @@ async function main(): Promise<void> {
   await Promise.all(
     servers.map((server) =>
       postToServer(server, {
-        path: `${HOOK_API_PREFIX}/claude`,
+        path: `${HOOK_API_PREFIX}/${otherAgent ?? 'claude'}`,
         body,
         label,
         debug: hookDebug,

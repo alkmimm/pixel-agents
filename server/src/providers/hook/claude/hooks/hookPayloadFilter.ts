@@ -17,7 +17,9 @@
 
 import { TASK_DESCRIPTION_DISPLAY_MAX_LENGTH } from '../../../../constants.js';
 import { bashCommandLabel } from './bashCommandLabel.js';
-import { CURSOR_AGENT_KIND, isCursorPayload, translateCursorPayload } from './cursorPayload.js';
+import { isAgentKind } from './agentKinds.js';
+import { isCursorPayload, translateCursorPayload } from './cursorPayload.js';
+import { AGENT_HINT, EVENT_HINT, translateForeignPayload } from './foreignPayload.js';
 
 /** Top-level string fields the server reads (event routing, lifecycle, teams). */
 const TOP_LEVEL_STRINGS = [
@@ -74,16 +76,25 @@ function filterToolInput(input: unknown): Record<string, unknown> | undefined {
   return out;
 }
 
+function toClaudeShape(raw: Record<string, unknown>): Record<string, unknown> {
+  if (raw[AGENT_HINT] !== undefined) {
+    return translateForeignPayload(raw[AGENT_HINT], raw[EVENT_HINT], raw);
+  }
+  return isCursorPayload(raw) ? translateCursorPayload(raw) : raw;
+}
+
 /** The forwarded subset of one hook payload. Never includes `tool_response`,
  *  prompt text, or any field not listed above. */
 export function filterHookPayload(raw: Record<string, unknown>): Record<string, unknown> {
-  // pixel-agents-secure (local): Cursor runs this hook too (cursorPayload.ts).
-  // Its payload is first rewritten as the Claude-shaped event it stands for,
-  // then goes through the very same allowlist.
-  const data = isCursorPayload(raw) ? translateCursorPayload(raw) : raw;
+  // pixel-agents-secure (local): other agents start this hook too. Cursor by
+  // itself (cursorPayload.ts); Copilot and Gemini through entries of ours in
+  // their configuration, which name the agent on the command line
+  // (foreignPayload.ts). Their payload is first rewritten as the Claude-shaped
+  // event it stands for, then goes through the very same allowlist.
+  const data = toClaudeShape(raw);
   const out: Record<string, unknown> = {};
-  // The only value this marker may take; anything else is not forwarded.
-  if (data.agent_kind === CURSOR_AGENT_KIND) out.agent_kind = CURSOR_AGENT_KIND;
+  // The only values this marker may take; anything else is not forwarded.
+  if (isAgentKind(data.agent_kind)) out.agent_kind = data.agent_kind;
   for (const key of TOP_LEVEL_STRINGS) {
     const value = capped(data[key], MAX_FORWARDED_STRING);
     if (value !== undefined) out[key] = value;

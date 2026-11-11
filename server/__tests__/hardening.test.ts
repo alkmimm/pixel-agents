@@ -539,6 +539,188 @@ describe('H4: a Cursor payload leaves only as an allowlisted, Claude-shaped even
   });
 });
 
+describe('H4: Copilot and Gemini payloads leave only as allowlisted, Claude-shaped events', () => {
+  const load = async () => {
+    const { filterHookPayload } =
+      await import('../src/providers/hook/claude/hooks/hookPayloadFilter.js');
+    const { claudeProvider } = await import('../src/providers/hook/claude/claude.js');
+    // As the hook script hands them over: the agent and the event from its own arguments.
+    const from = (agent: string, event: string, payload: Record<string, unknown>) =>
+      filterHookPayload({ ...payload, __pixel_agent: agent, __pixel_event: event });
+    return { filterHookPayload, claudeProvider, from };
+  };
+
+  it('a Copilot tool call: name, file name, program and verb; never the arguments or the result', async () => {
+    const { from, claudeProvider } = await load();
+    const filtered = from('copilot', 'preToolUse', {
+      sessionId: 'abc',
+      timestamp: 1,
+      cwd: '/home/u/repos/meu-projeto',
+      toolName: 'bash',
+      // Copilot hands the arguments over as a JSON string.
+      toolArgs: JSON.stringify({ command: 'TOKEN="SECRET" curl -H "x: SECRET" https://SECRET', description: 'SECRET' }),
+      toolResult: { textResultForLlm: 'SECRET' },
+      prompt: 'SECRET',
+    });
+    expect(JSON.stringify(filtered)).not.toContain('SECRET');
+    expect(filtered).toMatchObject({
+      agent_kind: 'copilot',
+      hook_event_name: 'PreToolUse',
+      session_id: 'copilot-abc',
+      cwd: '/home/u/repos/meu-projeto',
+      tool_name: 'Bash',
+    });
+    expect(Object.keys(filtered.tool_input as object)).toEqual(['command']);
+    expect(claudeProvider.normalizeHookEvent(filtered)?.event.kind).toBe('toolStart');
+  });
+
+  it('a Gemini tool call and its permission prompt', async () => {
+    const { from, claudeProvider } = await load();
+    const tool = from('gemini', 'BeforeTool', {
+      session_id: 'g1',
+      hook_event_name: 'BeforeTool',
+      transcript_path: '/home/u/.gemini/tmp/SECRET/chats/x.json',
+      cwd: '/w',
+      tool_name: 'write_file',
+      tool_input: { file_path: '/home/u/SECRET/a.md', content: 'SECRET' },
+      llm_request: 'SECRET',
+    });
+    expect(JSON.stringify(tool)).not.toContain('SECRET');
+    expect(tool).toEqual({
+      agent_kind: 'gemini',
+      hook_event_name: 'PreToolUse',
+      session_id: 'gemini-g1',
+      cwd: '/w',
+      tool_name: 'Write',
+      tool_input: { file_path: 'a.md' },
+    });
+    const ask = from('gemini', 'Notification', {
+      session_id: 'g1',
+      cwd: '/w',
+      notification_type: 'ToolPermission',
+      message: 'SECRET',
+      details: { command: 'SECRET' },
+    });
+    expect(JSON.stringify(ask)).not.toContain('SECRET');
+    expect(claudeProvider.normalizeHookEvent(ask)?.event.kind).toBe('permissionRequest');
+    // Any other notification is only text: dropped.
+    expect(from('gemini', 'Notification', { session_id: 'g1', notification_type: 'Other', message: 'SECRET' })).toEqual({});
+  });
+
+  it.each([
+    ['copilot', 'userPromptSubmitted', { sessionId: 'a', prompt: 'SECRET' }],
+    ['copilot', 'userPromptTransformed', { sessionId: 'a', transformedPrompt: 'SECRET' }],
+    ['copilot', 'errorOccurred', { sessionId: 'a', error: 'SECRET' }],
+    ['gemini', 'BeforeAgent', { session_id: 'a', prompt: 'SECRET' }],
+    ['gemini', 'AfterModel', { session_id: 'a', llm_response: 'SECRET' }],
+    ['gemini', 'BeforeModel', { session_id: 'a', llm_request: 'SECRET' }],
+    ['copilot', 'preToolUse', { toolName: 'bash' }], // no session
+    ['someone-else', 'preToolUse', { sessionId: 'a', session_id: 'a' }],
+  ])('%s %s is dropped whole', async (agent, event, payload) => {
+    const { from } = await load();
+    expect(from(agent, event, payload)).toEqual({});
+  });
+
+  it('turn end, session end and helpers map to the events the runtime knows', async () => {
+    const { from, claudeProvider } = await load();
+    const kind = (agent: string, event: string, payload: Record<string, unknown>) =>
+      claudeProvider.normalizeHookEvent(from(agent, event, payload))?.event.kind;
+    expect(kind('copilot', 'agentStop', { sessionId: 'a', transcriptPath: '/SECRET' })).toBe('turnEnd');
+    expect(kind('copilot', 'sessionEnd', { sessionId: 'a', reason: 'exit' })).toBe('sessionEnd');
+    expect(kind('copilot', 'postToolUseFailure', { sessionId: 'a', error: 'SECRET' })).toBe('toolEnd');
+    expect(kind('copilot', 'subagentStart', { sessionId: 'a', agentName: 'explore' })).toBe('subagentStart');
+    expect(kind('copilot', 'notification', { sessionId: 'a', notification_type: 'permission_prompt', message: 'SECRET' })).toBe('permissionRequest');
+    expect(kind('gemini', 'AfterAgent', { session_id: 'a', prompt_response: 'SECRET' })).toBe('turnEnd');
+    expect(kind('gemini', 'AfterTool', { session_id: 'a', tool_response: 'SECRET' })).toBe('toolEnd');
+    expect(kind('gemini', 'SessionStart', { session_id: 'a', cwd: '/w', source: 'startup' })).toBe('sessionStart');
+  });
+
+  it('filtering twice changes nothing; the hint itself is never forwarded', async () => {
+    const { from, filterHookPayload } = await load();
+    const once = from('copilot', 'agentStop', { sessionId: 'a', cwd: '/w' });
+    expect(filterHookPayload(once)).toEqual(once);
+    expect(JSON.stringify(once)).not.toContain('__pixel');
+  });
+
+  it('the route answers for these agents with the same filter, and only for them', async () => {
+    const { hookProviderById } = await import('../src/providers/index.js');
+    const { filterHookPayload } = await load();
+    expect(hookProviderById('copilot')?.sanitizeHookPayload).toBe(filterHookPayload);
+    expect(hookProviderById('gemini')?.sanitizeHookPayload).toBe(filterHookPayload);
+    expect(hookProviderById('cursor')).toBeUndefined();
+    expect(hookProviderById('whatever')).toBeUndefined();
+  });
+});
+
+describe('other agents: what is written into their configuration', () => {
+  const SCRIPT = '/home/u/.pixel-agents/hooks/claude-hook.js';
+  const load = () => import('../src/providers/hook/others/agentHookEntries.js');
+
+  it('no event that carries the prompt or decides a permission is ever registered', async () => {
+    const { COPILOT_HOOK_EVENTS, GEMINI_HOOK_EVENTS } = await load();
+    const all = [...COPILOT_HOOK_EVENTS, ...GEMINI_HOOK_EVENTS].map((e) => e.toLowerCase());
+    for (const banned of ['userpromptsubmitted', 'userprompttransformed', 'userpromptsubmit', 'beforeagent', 'permissionrequest', 'beforemodel', 'aftermodel']) {
+      expect(all).not.toContain(banned);
+    }
+  });
+
+  it('they are not asked about on first run, and never install by being listed', async () => {
+    const { hookProviders, otherAgentProviders } = await import('../src/providers/index.js');
+    expect(hookProviders.map((p) => p.id)).toEqual(['claude']);
+    expect(otherAgentProviders.map((p) => p.id)).toEqual(['copilot', 'gemini']);
+    for (const p of otherAgentProviders) {
+      expect(p.usageBridge).toBeUndefined();
+      expect(p.buildLaunchCommand).toBeUndefined();
+      expect(p.consentDisclosure().disclosure).toMatch(/never prompts/);
+    }
+  });
+
+  it('Copilot: a file of ours alone; every entry answers "no decision" even with no node', async () => {
+    const { copilotHooksFile, isOurCopilotHooksFile, COPILOT_HOOK_EVENTS } = await load();
+    const file = copilotHooksFile(SCRIPT) as { version: number; hooks: Record<string, Array<Record<string, unknown>>> };
+    expect(Object.keys(file.hooks)).toEqual([...COPILOT_HOOK_EVENTS]);
+    for (const [event, [entry]] of Object.entries(file.hooks)) {
+      expect(entry.bash).toBe(`node "${SCRIPT}" --agent=copilot --event=${event} || echo '{}'`);
+      expect(String(entry.powershell)).toMatch(/exit 0$/);
+      expect(entry.type).toBe('command');
+    }
+    expect(isOurCopilotHooksFile(file)).toBe(true);
+    // The same file written on Windows.
+    expect(isOurCopilotHooksFile(copilotHooksFile('C:\\Users\\u\\.pixel-agents\\hooks\\claude-hook.js'))).toBe(true);
+    // Anything of the user's in it, and it is not ours to overwrite or delete.
+    expect(isOurCopilotHooksFile({ ...file, hooks: { ...file.hooks, preToolUse: [{ type: 'command', bash: './mine.sh' }] } })).toBe(false);
+    expect(isOurCopilotHooksFile({ ...file, extra: true })).toBe(false);
+    expect(isOurCopilotHooksFile({ version: 1, hooks: {} })).toBe(false);
+  });
+
+  it('Gemini: our entries go in beside the user\'s and come out leaving exactly the user\'s', async () => {
+    const { withGeminiHooks, withoutGeminiHooks, hasGeminiHooks, GEMINI_HOOK_EVENTS } = await load();
+    const mine = {
+      theme: 'dark',
+      hooks: {
+        BeforeTool: [{ matcher: 'write_file', hooks: [{ name: 'mine', type: 'command', command: './check.sh' }] }],
+        PreCompress: [{ hooks: [{ name: 'mine2', type: 'command', command: './x.sh' }] }],
+      },
+    };
+    const before = JSON.stringify(mine);
+    const installed = withGeminiHooks(mine, SCRIPT) as { hooks: Record<string, unknown[]> } & Record<string, unknown>;
+    expect(JSON.stringify(mine)).toBe(before);
+    expect(hasGeminiHooks(installed)).toBe(true);
+    expect(hasGeminiHooks(mine)).toBe(false);
+    expect(installed.theme).toBe('dark');
+    expect(installed.hooks.BeforeTool).toHaveLength(2);
+    expect(installed.hooks.BeforeTool[0]).toEqual(mine.hooks.BeforeTool[0]);
+    for (const event of GEMINI_HOOK_EVENTS) {
+      expect(JSON.stringify(installed.hooks[event])).toContain(`--agent=gemini --event=${event}`);
+    }
+    // Twice is once.
+    expect(withGeminiHooks(installed, SCRIPT)).toEqual(installed);
+    expect(withoutGeminiHooks(installed)).toEqual(mine);
+    // With nothing of the user's, nothing is left behind.
+    expect(withoutGeminiHooks(withGeminiHooks({}, SCRIPT))).toEqual({});
+  });
+});
+
 describe('H4 (server side): the hook route filters too', () => {
   it('never hands the runtime an unfiltered payload, whatever script posted it', async () => {
     const { createHttpServer } = await import('../src/httpServer.js');
@@ -848,6 +1030,66 @@ describe.skipIf(!fs.existsSync(BUNDLED_HOOK))('H4 + H9: the bundled hook script'
       tool_input: { file_path: 'notes.md' },
     });
     expect(fs.existsSync(planted)).toBe(false);
+  });
+
+  it('started by another agent: answers "no decision" first, and posts the translated event to its route', async () => {
+    const http = await import('http');
+    const os = await import('os');
+    const { spawn } = await import('child_process');
+    const { SERVER_REGISTRY_PROTOCOL_VERSION } = await import('../src/constants.js');
+    const received: Array<{ url: string; body: string }> = [];
+    const server = http.createServer((req, res) => {
+      let data = '';
+      req.on('data', (c: Buffer) => (data += c.toString()));
+      req.on('end', () => {
+        received.push({ url: req.url ?? '', body: data });
+        res.end('ok');
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as { port: number }).port;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-hardening-other-'));
+    const servers = path.join(home, '.pixel-agents', 'servers');
+    fs.mkdirSync(servers, { recursive: true });
+    fs.writeFileSync(
+      path.join(servers, `${process.pid}-${port}.json`),
+      JSON.stringify({ port, pid: process.pid, token: 't', startedAt: Date.now(), servesSpa: false, protocol: SERVER_REGISTRY_PROTOCOL_VERSION }),
+    );
+    const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home };
+    delete env['PIXEL_AGENTS_DEBUG_LOG'];
+    delete env['CURSOR_VERSION'];
+    const run = async (args: string[], stdin: string) => {
+      const child = spawn(process.execPath, [BUNDLED_HOOK, ...args], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '';
+      child.stdout.on('data', (c: Buffer) => (stdout += c.toString()));
+      child.stdin.end(stdin);
+      const code = await new Promise<number | null>((resolve) => child.on('exit', resolve));
+      return { code, stdout };
+    };
+
+    const ok = await run(
+      ['--agent=copilot', '--event=preToolUse'],
+      JSON.stringify({ sessionId: 'abc', cwd: '/w', toolName: 'view', toolArgs: { path: '/home/u/SECRET/a.ts' }, prompt: 'SECRET' }),
+    );
+    // Even with nothing readable on stdin, the answer is still "no decision".
+    const broken = await run(['--agent=gemini', '--event=BeforeTool'], 'not json');
+    // An agent this build does not know is not one: Claude Code's own path, silent.
+    const unknown = await run(['--agent=other', '--event=x'], JSON.stringify({ session_id: 's', hook_event_name: 'Stop' }));
+    server.close();
+
+    expect(ok).toEqual({ code: 0, stdout: '{}\n' });
+    expect(broken).toEqual({ code: 0, stdout: '{}\n' });
+    expect(unknown).toEqual({ code: 0, stdout: '' });
+    expect(received.map((r) => r.url)).toEqual(['/api/hooks/copilot', '/api/hooks/claude']);
+    expect(received[0].body).not.toContain('SECRET');
+    expect(JSON.parse(received[0].body)).toEqual({
+      agent_kind: 'copilot',
+      hook_event_name: 'PreToolUse',
+      session_id: 'copilot-abc',
+      cwd: '/w',
+      tool_name: 'Read',
+      tool_input: { file_path: 'a.ts' },
+    });
   });
 });
 

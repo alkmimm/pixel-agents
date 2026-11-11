@@ -13,7 +13,7 @@
  */
 import { resetHooksConfig } from '../../server/src/configPersistence.js';
 import { uninstallHooks } from '../../server/src/providers/hook/claude/claudeHookInstaller.js';
-import { hookProviders } from '../../server/src/providers/index.js';
+import { hookProviders, otherAgentProviders } from '../../server/src/providers/index.js';
 
 const logError = (err: unknown): void => {
   console.error(`[Pixel Agents] ${err instanceof Error ? err.message : String(err)}`);
@@ -24,6 +24,10 @@ const logError = (err: unknown): void => {
 uninstallHooks()
   .catch(logError)
   .then(() => Promise.all(hookProviders.map((p) => p.usageBridge?.uninstall())))
+  .catch(logError)
+  // pixel-agents-secure (local): and what was written for the other agents
+  // (Copilot's file, Gemini's entries), each on its own.
+  .then(() => Promise.all(otherAgentProviders.map((p) => p.uninstallHooks().catch(logError))))
   .catch(logError)
   .finally(() => {
     resetHooksConfig();
