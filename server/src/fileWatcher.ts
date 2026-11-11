@@ -51,6 +51,7 @@ import { pathsMatch } from './pathKey.js';
 import type { SubagentWatch } from './subagentWatch.js';
 import { cancelPermissionTimer, cancelWaitingTimer, clearAgentActivity } from './timerManager.js';
 import { getHookProvider, processTranscriptLine } from './transcriptParser.js';
+import { cwdOfTranscript, projectNameFromCwd } from './projectName.js';
 import { isSessionOver } from './sessionLiveness.js';
 import { broadcastSignalsIfChanged, seedSignals } from './sessionSignals.js';
 import type { AgentState } from './types.js';
@@ -1095,6 +1096,8 @@ export function adoptExternalSessionFromHook(
     const projectDir = path.dirname(transcriptPath);
     const directoryName =
       directoryNameResolver?.({ cwd, projectDir }) ??
+      // pixel-agents-secure (local): the repository's name, from the cwd.
+      projectNameFromCwd(cwd ?? cwdOfTranscript(transcriptPath)) ??
       directoryNameFromProjectDir(path.basename(projectDir));
 
     adoptExternalSession(
@@ -1505,6 +1508,8 @@ function scanGlobalProjectDirs(
   const adoptGlobal = (file: string, dirPath: string): void => {
     const directoryName =
       directoryNameResolver?.({ projectDir: dirPath }) ??
+      // pixel-agents-secure (local): the repository's name, from the cwd.
+      projectNameFromCwd(cwdOfTranscript(file)) ??
       directoryNameFromProjectDir(path.basename(dirPath));
     knownJsonlFiles.add(file);
     console.log(

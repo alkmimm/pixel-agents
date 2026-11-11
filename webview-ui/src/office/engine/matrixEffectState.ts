@@ -41,11 +41,26 @@ export type MatrixEffectTick = 'none' | 'running' | 'spawned' | 'despawned';
 
 export function advanceMatrixEffect(ch: Character, dt: number): MatrixEffectTick {
   if (!ch.matrixEffect) return 'none';
-  ch.matrixEffectTimer += dt;
+  // pixel-agents-secure (local): with the system's "reduce motion" on, a
+  // character appears and leaves at once, without the effect.
+  ch.matrixEffectTimer += prefersReducedMotion() ? MATRIX_EFFECT_DURATION : dt;
   if (ch.matrixEffectTimer < MATRIX_EFFECT_DURATION) return 'running';
   if (ch.matrixEffect === 'despawn') return 'despawned';
   ch.matrixEffect = null;
   ch.matrixEffectTimer = 0;
   ch.matrixEffectSeeds = [];
   return 'spawned';
+}
+
+let reducedMotionQuery: MediaQueryList | null | undefined;
+
+/** The system's "reduce motion" preference (false where it cannot be read). */
+export function prefersReducedMotion(): boolean {
+  if (reducedMotionQuery === undefined) {
+    reducedMotionQuery =
+      typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        ? window.matchMedia('(prefers-reduced-motion: reduce)')
+        : null;
+  }
+  return reducedMotionQuery?.matches ?? false;
 }

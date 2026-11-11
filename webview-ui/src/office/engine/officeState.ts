@@ -1193,6 +1193,20 @@ export class OfficeState {
     ch.contextReported = true;
   }
 
+  /** pixel-agents-secure (local): whether anything is moving (someone walks,
+   *  appears or leaves, a pet roams, the camera follows), so the render loop
+   *  knows to draw smoothly; otherwise it draws at a low rate. */
+  hasMotion(): boolean {
+    if (this.greeter || this.cameraFollowId !== null) return true;
+    for (const ch of this.characters.values()) {
+      if (ch.state === CharacterState.WALK || ch.matrixEffect) return true;
+    }
+    for (const pet of this.pets) {
+      if (pet.state !== PetState.IDLE) return true;
+    }
+    return false;
+  }
+
   update(dt: number): void {
     // Furniture animation cycling
     const prevFrame = Math.floor(this.furnitureAnimTimer / FURNITURE_ANIM_INTERVAL_SEC);

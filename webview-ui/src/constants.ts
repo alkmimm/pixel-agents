@@ -877,3 +877,11 @@ export const MUSIC_VERSION_GAP_PX = 6;
 export const VERSION_LABEL_BOTTOM_PX = 10;
 /** The update notice / changelog tooltip, this far above the label's spot. */
 export const VERSION_NOTICE_ABOVE_PX = 34;
+
+// ── pixel-agents-secure (local): render rate ────────────────
+/** Frames per second while someone walks, the camera moves or the user handles the office. */
+export const OFFICE_FPS_MOVING = 30;
+/** Frames per second when everything sits still (typing and blinking still animate). */
+export const OFFICE_FPS_IDLE = 10;
+/** How long after the last pointer, wheel or key event the office keeps drawing smoothly. */
+export const OFFICE_INPUT_SMOOTH_MS = 1500;

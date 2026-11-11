@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 import {
+  OFFICE_FPS_IDLE,
+  OFFICE_FPS_MOVING,
+  OFFICE_INPUT_SMOOTH_MS,
   CAMERA_FOLLOW_LERP,
   CAMERA_FOLLOW_SNAP_THRESHOLD,
   OFFICE_CANVAS_TEST_ID,
@@ -133,7 +136,21 @@ export function OfficeCanvas({
 
     resizeCanvas();
 
+    // pixel-agents-secure (local): smooth while something moves or the user
+    // is handling the office, a low rate otherwise (gameLoop.ts).
+    let lastInputAt = 0;
+    const onInput = () => {
+      lastInputAt = performance.now();
+    };
+    const inputEvents = ['pointerdown', 'pointermove', 'wheel', 'keydown'] as const;
+    for (const type of inputEvents) window.addEventListener(type, onInput, { passive: true });
     const loop = startGameLoop(canvas, {
+      fps: () =>
+        isEditMode ||
+        officeState.hasMotion() ||
+        performance.now() - lastInputAt < OFFICE_INPUT_SMOOTH_MS
+          ? OFFICE_FPS_MOVING
+          : OFFICE_FPS_IDLE,
       update: (dt) => {
         officeState.update(dt);
       },
@@ -236,6 +253,7 @@ export function OfficeCanvas({
 
     return () => {
       loop.stop();
+      for (const type of inputEvents) window.removeEventListener(type, onInput);
       observer.disconnect();
       window.removeEventListener(VIEW_SCALE_EVENT, onViewScale);
     };

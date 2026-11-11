@@ -14,6 +14,7 @@
 import * as fs from 'node:fs';
 
 import type { AgentStateStore } from './agentStateStore.js';
+import { projectDirOfCwd } from './projectName.js';
 import { redactSecrets } from './secretMask.js';
 import type { AgentState } from './types.js';
 
@@ -250,7 +251,8 @@ export class ActivityLog {
     readHead(agent.jsonlFile)
       .then((head) => {
         const cwd = cwdFromTranscriptHead(head);
-        const project = cwd ? folderName(cwd) : undefined;
+        // pixel-agents-secure (local): a worktree counts as its repository.
+        const project = cwd ? folderName(projectDirOfCwd(cwd)) : undefined;
         const current = this.tracks.get(id);
         if (!project || !current || !this.store.has(id)) return;
         current.project = project;
