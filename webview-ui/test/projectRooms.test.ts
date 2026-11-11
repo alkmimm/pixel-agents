@@ -217,17 +217,18 @@ describe('project rooms: the composed office', () => {
     expect(two.rooms.find((r) => r.project === 'alfa')).toEqual(one.rooms[0]);
   });
 
-  it('nothing walkable is left open onto the void', () => {
+  it('nothing walkable is left open onto the void, beside or over it', () => {
     const base = baseOffice(false);
     const { layout } = composeOffice(base, [room('alfa', 0), room('beta', 1, 2)], new Set());
     for (let r = base.rows; r < layout.rows; r++) {
       for (let c = 0; c < layout.cols; c++) {
         const tile = layout.tiles[r * layout.cols + c];
         if (tile === W || tile === V) continue;
+        // Beside and over it; under it the void needs no wall (a wall there
+        // would be drawn over whoever stands on this row).
         for (const [dc, dr] of [
           [1, 0],
           [-1, 0],
-          [0, 1],
           [0, -1],
         ]) {
           const nc = c + dc;
@@ -291,17 +292,18 @@ describe('project rooms: the compact office', () => {
     }
   });
 
-  it('nothing walkable opens onto the void or the edge, and row 0 is empty', () => {
+  it('nothing walkable opens onto the void beside or over it, and row 0 is empty', () => {
     const { layout } = compact([room('a', 0), room('b', 1, 3), room('c', 4, 2)]);
     for (let c = 0; c < layout.cols; c++) expect(layout.tiles[c]).toBe(V);
     for (let r = 0; r < layout.rows; r++) {
       for (let c = 0; c < layout.cols; c++) {
         const tile = layout.tiles[r * layout.cols + c];
         if (tile === W || tile === V) continue;
+        // Beside and over it; under it the void needs no wall (a wall there
+        // would be drawn over whoever stands on this row).
         for (const [dc, dr] of [
           [1, 0],
           [-1, 0],
-          [0, 1],
           [0, -1],
         ]) {
           const nc = c + dc;
@@ -330,13 +332,38 @@ describe('project rooms: the compact office', () => {
     }
   });
 
-  it("a room's name goes on the wall across from its door", () => {
-    const { layout, rooms } = compact([room('a', 0), room('b', 1)]);
-    for (const r of rooms) {
-      expect(layout.tiles[r.signRow * layout.cols + r.signCol]).toBe(W);
-      const doorRow = r.signRow === r.row ? r.row + r.height - 1 : r.row;
-      expect(layout.tiles[doorRow * layout.cols + r.signCol]).not.toBe(W);
+  it('no stretch of wall stands right under a walkable tile', () => {
+    for (const compactOffice of [true, false]) {
+      const { layout } = composeOffice(
+        baseOffice(true),
+        [room('a', 0), room('b', 1, 2), room('c', 2, 3)],
+        new Set(),
+        compactOffice,
+      );
+      // From the corridor down (the base office over it is drawn as it came).
+      const from = compactOffice ? 0 : baseOffice(true).rows;
+      for (let r = Math.max(1, from); r < layout.rows; r++) {
+        for (let c = 0; c < layout.cols; c++) {
+          const tile = (col: number, row: number) =>
+            col >= 0 && col < layout.cols ? layout.tiles[row * layout.cols + col] : V;
+          if (tile(c, r) !== W) continue;
+          // The end of a wall between two rooms may meet the corridor (one
+          // tile wide); a stretch of wall along it may not.
+          if (tile(c - 1, r) !== W && tile(c + 1, r) !== W) continue;
+          const over = tile(c, r - 1);
+          expect(over === W || over === V).toBe(true);
+        }
+      }
     }
   });
-});
 
+  it("a room's name goes on its top wall, or under a room that has none", () => {
+    const { layout, rooms } = compact([room('a', 0), room('b', 1)]);
+    const tile = (c: number, r: number) => layout.tiles[r * layout.cols + c];
+    const under = rooms.find((r) => r.project === 'a')!;
+    const over = rooms.find((r) => r.project === 'b')!;
+    expect(tile(over.signCol, over.signRow)).toBe(W);
+    expect(tile(under.signCol, under.signRow)).toBe(V);
+    expect(tile(under.signCol, under.signRow - 1)).not.toBe(V);
+  });
+});

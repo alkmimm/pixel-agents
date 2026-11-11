@@ -13,6 +13,10 @@ import {
   PET_HIT_HALF_WIDTH,
   PET_HIT_HEIGHT,
   ROOM_WANDER_HOME_CHANCE,
+  ROOM_WANDER_MOVES_MAX,
+  ROOM_WANDER_MOVES_MIN,
+  ROOM_WANDER_PAUSE_MAX_SEC,
+  ROOM_WANDER_PAUSE_MIN_SEC,
   WAITING_BUBBLE_DURATION_SEC,
 } from '../../constants.js';
 import { contextUsedShare } from '../contextGauge.js';
@@ -40,10 +44,24 @@ import type {
 } from '../types.js';
 import { CharacterState, Direction, PetState, TILE_SIZE } from '../types.js';
 import { tickBlink } from './blink.js';
-import { createCharacter, restInChair, updateCharacter, updateHelper } from './characters.js';
+import {
+  createCharacter,
+  restInChair,
+  updateCharacter,
+  updateHelper,
+  type WanderPace,
+} from './characters.js';
 import { advanceMatrixEffect, startMatrixEffect } from './matrixEffectState.js';
 import { createPet, updatePet } from './petEntity.js';
 import { anchorTile, closestFreeSeat } from './seatPlacement.js';
+
+/** pixel-agents-secure (local): the idle pace with a room per project. */
+const ROOM_PACE: WanderPace = {
+  pauseMinSec: ROOM_WANDER_PAUSE_MIN_SEC,
+  pauseMaxSec: ROOM_WANDER_PAUSE_MAX_SEC,
+  movesMin: ROOM_WANDER_MOVES_MIN,
+  movesMax: ROOM_WANDER_MOVES_MAX,
+};
 
 /** Whether a character sits in a chair: helpers stand by their lead, and a
  *  departing character is leaving. */
@@ -306,7 +324,20 @@ export class OfficeState {
     this.roomTiles = new Map();
     this.commonTiles = [];
     if (this.roomTilesOf !== this.layout) return;
+    // Not where furniture stands, even on its walkable background rows: a
+    // stroll that ends behind a desk, against the wall, looks lost.
+    const furnished = new Set<string>();
+    for (const item of this.layout.furniture) {
+      const entry = getCatalogEntry(item.type);
+      if (!entry) continue;
+      for (let dr = 0; dr < entry.footprintH; dr++) {
+        for (let dc = 0; dc < entry.footprintW; dc++) {
+          furnished.add(`${item.col + dc},${item.row + dr}`);
+        }
+      }
+    }
     for (const tile of this.walkableTiles) {
+      if (furnished.has(`${tile.col},${tile.row}`)) continue;
       const label = this.roomTileLabels[tile.row * this.layout.cols + tile.col] ?? null;
       if (label !== null) {
         const list = this.roomTiles.get(label);
@@ -1534,6 +1565,7 @@ export class OfficeState {
             this.seats,
             this.tileMap,
             this.blockedTiles,
+            this.roomTiles.size > 0 ? ROOM_PACE : undefined,
           ),
         );
       }

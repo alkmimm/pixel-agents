@@ -69,6 +69,7 @@ import {
 import { agentStatusView } from './viewer/agentStatus.js';
 import { AgentsPanel } from './viewer/AgentsPanel.js';
 import { AttentionInbox } from './viewer/AttentionInbox.js';
+import { projectAliases, shownProjectName } from './viewer/roomNames.js';
 import { useOfficeLife } from './viewer/useOfficeLife.js';
 import { useProjectRooms } from './viewer/useProjectRooms.js';
 import { useAttentionTitle } from './viewer/useAttentionTitle.js';
@@ -257,7 +258,7 @@ function App() {
   // pixel-agents-secure (local): in a read-only office the display options are
   // this browser's own (ViewerBar.tsx) and win over the server's settings.
   // Nothing is sent to the server.
-  const [viewerPrefs, toggleViewerPref, setViewerLabelMode] = useViewerPrefs();
+  const [viewerPrefs, toggleViewerPref, setViewerLabelMode, setViewerRoomNames] = useViewerPrefs();
   // pixel-agents-secure (local): the opt-in features (Opções → Novidades),
   // only in the read-only office.
   const features = useMemo<ViewerFeatures>(
@@ -329,18 +330,40 @@ function App() {
     viewerPrefs.compactOffice,
     keepViewOnResize,
   );
+  // What is written for each project (its name, an alias or nothing); the
+  // rooms come first and in slot order, so a room's alias does not change
+  // while it is open.
+  const projectAliasMap = useMemo(
+    () =>
+      projectAliases([
+        ...[...projectRooms].sort((a, b) => a.slot - b.slot).map((room) => room.project),
+        ...agentDirectoryNames,
+      ]),
+    [projectRooms, agentDirectoryNames],
+  );
+  const roomNameMode = viewerPrefs.roomNames;
   const roomSigns = useMemo(
     () =>
-      projectRooms.map((room) => ({
+      projectRooms.flatMap((room) => {
+        const text = shownProjectName(room.project, roomNameMode, projectAliasMap);
+        return text === undefined ? [] : [{ room, text }];
+      }).map(({ room, text }) => ({
         key: room.label,
-        text: room.project,
+        text,
         // Along the wall across the room from its door.
         x: (room.signCol + 0.5) * TILE_SIZE,
         y: (room.signRow + 0.5) * TILE_SIZE,
         width: (room.width - 2) * TILE_SIZE,
         color: room.color,
       })),
-    [projectRooms],
+    [projectRooms, roomNameMode, projectAliasMap],
+  );
+  // In the agents list a group needs a title: hidden names show the alias.
+  const listedProjectName = useCallback(
+    (project: string) =>
+      shownProjectName(project, roomNameMode === 'hidden' ? 'alias' : roomNameMode, projectAliasMap) ??
+      project,
+    [roomNameMode, projectAliasMap],
   );
 
   // pixel-agents-secure (local): coffee breaks, naps and the like.
@@ -934,6 +957,7 @@ function App() {
           prefs={viewerPrefs}
           onToggle={toggleViewerPref}
           onLabelMode={setViewerLabelMode}
+          onRoomNames={setViewerRoomNames}
         />
       )}
       {officeReadOnly && viewerPrefs.agentsPanel && (
@@ -943,6 +967,7 @@ function App() {
           agentTools={agentTools}
           features={features}
           openAgentId={detailsAgentId}
+          projectName={listedProjectName}
           onOpen={openFromInbox}
           onClose={() => toggleViewerPref('agentsPanel')}
         />

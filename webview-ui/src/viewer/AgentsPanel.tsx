@@ -28,6 +28,8 @@ interface Props {
   features: ViewerFeatures;
   /** The agent whose details are open, highlighted in the list. */
   openAgentId: number | null;
+  /** What to write for a project (its name, or an alias: viewer/roomNames.ts). */
+  projectName: (project: string) => string;
   onOpen: (id: number) => void;
   onClose: () => void;
 }
@@ -38,6 +40,7 @@ export function AgentsPanel({
   agentTools,
   features,
   openAgentId,
+  projectName,
   onOpen,
   onClose,
 }: Props) {
@@ -138,8 +141,8 @@ export function AgentsPanel({
       )}
       {projects.map(({ project, rows: list }) => (
         <div key={project ?? ''} className="flex flex-col gap-2">
-          <span className="text-2xs text-text-muted mt-4 truncate" title={project ?? undefined}>
-            {project ?? 'Sem projeto'} ({list.length})
+          <span className="text-2xs text-text-muted mt-4 truncate">
+            {project === null ? 'Sem projeto' : projectName(project)} ({list.length})
           </span>
           {list.map(renderRow)}
         </div>

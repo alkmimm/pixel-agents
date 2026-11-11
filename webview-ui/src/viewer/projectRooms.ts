@@ -16,6 +16,11 @@
  *   under     the base office as it is, a corridor under it and one row of
  *             rooms under the corridor.
  *
+ * Walls: a wall is drawn taller than its tile and hides whoever stands on
+ * the row over it. So there is no wall under anything walkable: rooms are
+ * open on the corridor's side and at the bottom (the void is not walkable,
+ * it needs no wall), and only closed at the top and the sides.
+ *
  * Each room keeps its slot (its place) for as long as it lives, so a room
  * closing never moves the others. Which tiles belong to which room is
  * returned beside the layout (`roomTiles`), not written into it as Areas:
@@ -70,9 +75,10 @@ export interface RoomState {
 
 export interface PlacedRoom {
   project: string;
-  /** The room's Area label. */
+  /** The room's label in `roomTiles`. */
   label: string;
-  /** Top-left tile of the room, walls included. */
+  slot: number;
+  /** Top-left tile of the room, walls included; its size, walls included. */
   col: number;
   row: number;
   width: number;
@@ -80,8 +86,8 @@ export interface PlacedRoom {
   seats: number;
   /** Hex colour of the room's name. */
   color: string;
-  /** The wall the room's name is written on: its far wall from the corridor
-   *  (the near one has the door). Tile of its middle. */
+  /** Where the room's name is written: the middle of its top wall, or (a
+   *  room under the corridor has none) of the row under it. */
   signCol: number;
   signRow: number;
 }
@@ -223,9 +229,10 @@ class Plan {
     this.put(c, r, TileType.WALL, this.wallColor);
   }
 
-  /** Wall every void tile around (c,r): nothing walkable opens onto nothing. */
+  /** Wall the void tiles beside and over (c,r); never under it (see "Walls"
+   *  at the top of this file). */
   enclose(c: number, r: number): void {
-    for (let dr = -1; dr <= 1; dr++) {
+    for (let dr = -1; dr <= 0; dr++) {
       for (let dc = -1; dc <= 1; dc++) {
         const nc = c + dc;
         const nr = r + dr;
@@ -236,39 +243,33 @@ class Plan {
   }
 
   /**
-   * One project's room, its left wall on column `x0` and its door on row
-   * `doorRow`, the room lying under the door (`side` 1) or over it (-1).
+   * One project's room: its left wall on column `x0`, its floor from row
+   * `top` down. It is open on the corridor's side and at the bottom (see
+   * "Walls" at the top of this file); `wallOnTop` closes it at the top, for a
+   * room over the corridor. Its name goes on that wall, or under the room.
    */
-  room(spec: RoomState, x0: number, doorRow: number, side: 1 | -1): void {
+  room(spec: RoomState, x0: number, top: number, wallOnTop: boolean): void {
     const label = roomLabel(spec.project);
     const hue = projectHue(spec.project);
     const floorColor: ColorValue = { h: hue, s: 40, b: -42, c: -85 };
     const depth = spec.stationRows * STATION_ROWS;
-    const farRow = doorRow + side * (depth + 1);
-    const top = Math.min(doorRow, farRow);
-    const bottom = Math.max(doorRow, farRow);
-    for (let r = top; r <= bottom; r++) {
+    const last = top + depth - 1;
+    const firstWall = wallOnTop ? top - 1 : top;
+    for (let r = firstWall; r <= last; r++) {
       this.wall(x0, r);
       this.wall(x0 + ROOM_PITCH, r);
     }
-    for (let c = x0; c <= x0 + ROOM_PITCH; c++) {
-      this.wall(c, top);
-      this.wall(c, bottom);
-    }
-    for (let r = top + 1; r < bottom; r++) {
+    if (wallOnTop) for (let c = x0; c <= x0 + ROOM_PITCH; c++) this.wall(c, top - 1);
+    for (let r = top; r <= last; r++) {
       for (let c = x0 + 1; c < x0 + ROOM_PITCH; c++) {
         this.put(c, r, ROOM_FLOOR, floorColor);
         this.roomTiles[this.at(c, r)] = label;
       }
     }
-    // The door, on the free column between the two desks.
-    this.put(x0 + 4, doorRow, ROOM_FLOOR, floorColor);
-    this.roomTiles[this.at(x0 + 4, doorRow)] = label;
 
-    // Rows of desks from the top; each ends in a free row, so the last free
-    // row is the one by the bottom wall (and by the door, in a room over it).
+    // Rows of desks from the top; each ends in a free row.
     for (let k = 0; k < spec.stationRows; k++) {
-      const deskRow = top + 1 + k * STATION_ROWS;
+      const deskRow = top + k * STATION_ROWS;
       for (let j = 0; j < SEATS_PER_STATION_ROW; j++) {
         const deskCol = x0 + 1 + j * 4;
         const uid = `${label}:${k}:${j}`;
@@ -283,19 +284,20 @@ class Plan {
       }
     }
     // Two tiles tall (its top is walkable background): it stands on the last row.
-    this.furniture.push({ uid: `${label}:planta`, type: PLANT, col: x0 + 1, row: bottom - 2 });
+    this.furniture.push({ uid: `${label}:planta`, type: PLANT, col: x0 + 1, row: last - 1 });
 
     this.rooms.push({
       project: spec.project,
       label,
+      slot: spec.slot,
       col: x0,
-      row: top,
+      row: firstWall,
       width: ROOM_WIDTH,
-      height: depth + 2,
+      height: last - firstWall + 1,
       seats: spec.stationRows * SEATS_PER_STATION_ROW,
       color: hueToHex(hue),
       signCol: x0 + ROOM_PITCH / 2,
-      signRow: farRow,
+      signRow: wallOnTop ? top - 1 : last + 1,
     });
   }
 }
@@ -324,29 +326,28 @@ function composeCompact(base: OfficeLayout, specs: readonly RoomState[]): Compos
   const over = specs.filter((s) => s.slot % 2 === 1);
   const under = specs.filter((s) => s.slot % 2 === 0);
   const deepest = (list: readonly RoomState[]) =>
-    list.length > 0 ? Math.max(...list.map((s) => s.stationRows)) * STATION_ROWS + 2 : 0;
-  // Rows over and under the corridor: the lounge's half, or the deepest room.
-  const above = Math.max(LOUNGE_HALF + 1, deepest(over));
-  const below = Math.max(LOUNGE_HALF + 1, deepest(under));
+    list.length > 0 ? Math.max(...list.map((s) => s.stationRows)) * STATION_ROWS : 0;
+  // Rows over the corridor: the lounge's half or the deepest room, and the
+  // wall on top of it. Under it: the same, and a row for the rooms' names.
+  const above = Math.max(LOUNGE_HALF, deepest(over)) + 1;
+  const below = Math.max(LOUNGE_HALF, deepest(under)) + 1;
   // Row 0 stays empty: the top walls are drawn taller than their tile.
   const corridorRow = 1 + above;
   const columns = Math.floor(Math.max(...specs.map((s) => s.slot)) / 2) + 1;
   const plan = new Plan(ROOM_WIDTH + columns * ROOM_PITCH, corridorRow + below + 1, WALL_COLOR);
 
-  // ── The lounge: columns 0-8, centred on the corridor, open to it.
-  const loungeTop = corridorRow - LOUNGE_HALF - 1;
-  const loungeBottom = corridorRow + LOUNGE_HALF + 1;
+  // ── The lounge: columns 0-8, centred on the corridor and open to it.
+  const loungeTop = corridorRow - LOUNGE_HALF;
+  const loungeBottom = corridorRow + LOUNGE_HALF;
+  for (let c = 0; c <= ROOM_PITCH; c++) plan.wall(c, loungeTop - 1);
   for (let r = loungeTop; r <= loungeBottom; r++) {
-    for (let c = 0; c <= ROOM_PITCH; c++) {
-      const edge = r === loungeTop || r === loungeBottom || c === 0 || c === ROOM_PITCH;
-      if (edge) plan.wall(c, r);
-      else plan.put(c, r, LOUNGE_FLOOR, LOUNGE_COLOR);
-    }
+    plan.wall(0, r);
+    plan.wall(ROOM_PITCH, r);
+    for (let c = 1; c < ROOM_PITCH; c++) plan.put(c, r, LOUNGE_FLOOR, LOUNGE_COLOR);
   }
-  plan.put(ROOM_PITCH, corridorRow, CORRIDOR_FLOOR, CORRIDOR_COLOR);
   const add = (name: string, type: string, col: number, row: number) =>
     plan.furniture.push({ uid: `comum:${name}`, type, col, row });
-  // Sofas around the coffee table, as far from the door as the room allows.
+  // Sofas around the coffee table.
   const tableCol = 3;
   const tableRow = corridorRow - 1;
   add('mesa', 'COFFEE_TABLE', tableCol, tableRow);
@@ -355,24 +356,23 @@ function composeCompact(base: OfficeLayout, specs: readonly RoomState[]): Compos
   add('sofa-esq', 'SOFA_SIDE', tableCol - 1, tableRow);
   add('sofa-dir', 'SOFA_SIDE:left', tableCol + 2, tableRow);
   add('cafe', 'COFFEE', tableCol, tableRow + 1);
-  add('planta-1', PLANT, 1, loungeTop + 1);
-  add('planta-2', 'PLANT_2', ROOM_PITCH - 1, loungeTop + 1);
-  add('lixeira', 'BIN', 1, loungeBottom - 1);
+  add('planta-1', PLANT, 1, loungeTop);
+  add('planta-2', 'PLANT_2', ROOM_PITCH - 1, loungeTop);
+  add('lixeira', 'BIN', 1, loungeBottom);
 
-  // ── The corridor, walled on both sides (the rooms' doors are cut after).
-  for (let c = ROOM_WIDTH; c < plan.cols; c++) {
-    if (c === plan.cols - 1) plan.wall(c, corridorRow);
-    else plan.put(c, corridorRow, CORRIDOR_FLOOR, CORRIDOR_COLOR);
-  }
+  // ── The corridor, from the lounge to the last room, with a wall over it
+  // wherever no room is.
   for (let c = ROOM_PITCH; c < plan.cols; c++) {
     plan.wall(c, corridorRow - 1);
-    plan.wall(c, corridorRow + 1);
+    if (c === plan.cols - 1) plan.wall(c, corridorRow);
+    else plan.put(c, corridorRow, CORRIDOR_FLOOR, CORRIDOR_COLOR);
   }
 
   for (const spec of specs) {
     const x0 = ROOM_PITCH + Math.floor(spec.slot / 2) * ROOM_PITCH;
-    if (spec.slot % 2 === 0) plan.room(spec, x0, corridorRow + 1, 1);
-    else plan.room(spec, x0, corridorRow - 1, -1);
+    const depth = spec.stationRows * STATION_ROWS;
+    if (spec.slot % 2 === 0) plan.room(spec, x0, corridorRow + 1, false);
+    else plan.room(spec, x0, corridorRow - depth, true);
   }
 
   const layout: OfficeLayout = {
@@ -401,12 +401,12 @@ function composeUnder(
 ): ComposedOffice {
   const slots = Math.max(...specs.map((s) => s.slot)) + 1;
   const corridorRow = base.rows;
-  const wallRow = base.rows + 1;
   const deepest = Math.max(...specs.map((s) => s.stationRows)) * STATION_ROWS;
   const wallIndex = base.tiles.indexOf(TileType.WALL);
   const plan = new Plan(
     Math.max(base.cols, slots * ROOM_PITCH + 1),
-    wallRow + deepest + 2,
+    // The corridor, the rooms and a row for their names.
+    corridorRow + deepest + 2,
     wallIndex >= 0 ? (base.tileColors?.[wallIndex] ?? null) : null,
   );
   const { cols } = plan;
@@ -475,19 +475,19 @@ function composeUnder(
     }
   }
 
-  // ── The corridor, and the wall under it (the rooms' top wall).
+  // ── The corridor, the rooms opening onto it from under.
   for (let c = 0; c < cols; c++) {
     if (c === 0 || c === cols - 1) plan.wall(c, corridorRow);
     else {
       plan.put(c, corridorRow, corridorFloor, corridorColor);
       opened.push({ c, r: corridorRow });
     }
-    plan.wall(c, wallRow);
   }
-  // Close what the corridor and the way down opened onto nothing.
+  // Close what the corridor and the way down opened onto nothing, beside
+  // and over them.
   for (const { c, r } of opened) plan.enclose(c, r);
 
-  for (const spec of specs) plan.room(spec, spec.slot * ROOM_PITCH, wallRow, 1);
+  for (const spec of specs) plan.room(spec, spec.slot * ROOM_PITCH, corridorRow + 1, false);
 
   const layout: OfficeLayout = {
     ...base,

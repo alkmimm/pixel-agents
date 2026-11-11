@@ -14,10 +14,13 @@ import { Checkbox } from './components/ui/Checkbox.js';
 import { canPictureInPicture, fitOffice, openPictureInPicture } from './pictureInPicture.js';
 import type { ViewerFeatures } from './viewer/agentSignals.js';
 import { LABEL_MODES, type LabelMode, parseLabelMode } from './viewer/labelMode.js';
+import { parseRoomNameMode, ROOM_NAME_MODES, type RoomNameMode } from './viewer/roomNames.js';
 
 export interface ViewerPrefs extends ViewerFeatures {
   /** When the name and activity above a character show (viewer/labelMode.ts). */
   labelMode: LabelMode;
+  /** What is written for a project's room: name, alias or nothing (viewer/roomNames.ts). */
+  roomNames: RoomNameMode;
   /** Bubbles and labels over the characters at all. */
   overlay: boolean;
   areas: boolean;
@@ -36,10 +39,11 @@ export interface ViewerPrefs extends ViewerFeatures {
 }
 
 /** The on/off preferences (everything but the label mode). */
-export type ViewerToggle = Exclude<keyof ViewerPrefs, 'labelMode'>;
+export type ViewerToggle = Exclude<keyof ViewerPrefs, 'labelMode' | 'roomNames'>;
 
 const DEFAULT_PREFS: ViewerPrefs = {
   labelMode: 'hover',
+  roomNames: 'name',
   overlay: true,
   areas: false,
   ghosts: false,
@@ -113,6 +117,7 @@ function loadPrefs(): ViewerPrefs {
     }
     // "labels" was the old "always visible" checkbox.
     prefs.labelMode = parseLabelMode(saved.labelMode, saved.labels);
+    prefs.roomNames = parseRoomNameMode(saved.roomNames);
   } catch {
     // No storage, or not ours: the defaults.
   }
@@ -123,6 +128,7 @@ export function useViewerPrefs(): [
   ViewerPrefs,
   (key: ViewerToggle) => void,
   (mode: LabelMode) => void,
+  (mode: RoomNameMode) => void,
 ] {
   const [prefs, setPrefs] = useState(loadPrefs);
   useEffect(() => {
@@ -138,17 +144,22 @@ export function useViewerPrefs(): [
   const setLabelMode = useCallback((labelMode: LabelMode) => {
     setPrefs((current) => ({ ...current, labelMode }));
   }, []);
-  return [prefs, toggle, setLabelMode];
+  const setRoomNames = useCallback((roomNames: RoomNameMode) => {
+    setPrefs((current) => ({ ...current, roomNames }));
+  }, []);
+  return [prefs, toggle, setLabelMode, setRoomNames];
 }
 
 export function ViewerBar({
   prefs,
   onToggle,
   onLabelMode,
+  onRoomNames,
 }: {
   prefs: ViewerPrefs;
   onToggle: (key: ViewerToggle) => void;
   onLabelMode: (mode: LabelMode) => void;
+  onRoomNames: (mode: RoomNameMode) => void;
 }) {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [floating, setFloating] = useState(false);
@@ -194,6 +205,20 @@ export function ViewerBar({
                 variant={prefs.labelMode === mode ? 'active' : 'default'}
                 title={title}
                 onClick={() => onLabelMode(mode)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <span className="text-2xs text-text-muted mt-4">Nome das salas</span>
+          <div className="flex flex-wrap gap-4 shrink-0" data-testid="viewer-room-names">
+            {ROOM_NAME_MODES.map(({ mode, label, title }) => (
+              <Button
+                key={mode}
+                size="sm"
+                variant={prefs.roomNames === mode ? 'active' : 'default'}
+                title={title}
+                onClick={() => onRoomNames(mode)}
               >
                 {label}
               </Button>

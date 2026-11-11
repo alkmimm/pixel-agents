@@ -14,6 +14,15 @@ export const TYPE_FRAME_DURATION_SEC = 0.3;
 /** pixel-agents-secure (local): with a room per project, how often an idle
  *  agent's next stroll stays inside its own room (else: the common office). */
 export const ROOM_WANDER_HOME_CHANCE = 0.7;
+/** pixel-agents-secure (local): an idle agent's pace with a room per project.
+ *  The office's own pace (below) has it on its feet half the time, standing
+ *  up to 20 s between two walks; in a small room that reads as pacing and
+ *  freezing. Here it mostly sits at its desk, and a stroll is a few short
+ *  walks with short stops. */
+export const ROOM_WANDER_PAUSE_MIN_SEC = 1.5;
+export const ROOM_WANDER_PAUSE_MAX_SEC = 5.0;
+export const ROOM_WANDER_MOVES_MIN = 1;
+export const ROOM_WANDER_MOVES_MAX = 3;
 export const WANDER_PAUSE_MIN_SEC = 2.0;
 export const WANDER_PAUSE_MAX_SEC = 20.0;
 export const WANDER_MOVES_BEFORE_REST_MIN = 3;

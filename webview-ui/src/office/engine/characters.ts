@@ -94,6 +94,22 @@ export function createCharacter(
   };
 }
 
+/** How an idle character strolls: how long it stands between two walks, and
+ *  how many walks before it goes back to its chair. */
+export interface WanderPace {
+  pauseMinSec: number;
+  pauseMaxSec: number;
+  movesMin: number;
+  movesMax: number;
+}
+
+const DEFAULT_PACE: WanderPace = {
+  pauseMinSec: WANDER_PAUSE_MIN_SEC,
+  pauseMaxSec: WANDER_PAUSE_MAX_SEC,
+  movesMin: WANDER_MOVES_BEFORE_REST_MIN,
+  movesMax: WANDER_MOVES_BEFORE_REST_MAX,
+};
+
 export function updateCharacter(
   ch: Character,
   dt: number,
@@ -101,6 +117,8 @@ export function updateCharacter(
   seats: Map<string, Seat>,
   tileMap: TileTypeVal[][],
   blockedTiles: Set<string>,
+  /** pixel-agents-secure (local): unset, the office's usual pace. */
+  pace: WanderPace = DEFAULT_PACE,
 ): void {
   ch.frameTimer += dt;
 
@@ -120,9 +138,9 @@ export function updateCharacter(
         ch.state = CharacterState.IDLE;
         ch.frame = 0;
         ch.frameTimer = 0;
-        ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
+        ch.wanderTimer = randomRange(pace.pauseMinSec, pace.pauseMaxSec);
         ch.wanderCount = 0;
-        ch.wanderLimit = randomInt(WANDER_MOVES_BEFORE_REST_MIN, WANDER_MOVES_BEFORE_REST_MAX);
+        ch.wanderLimit = randomInt(pace.movesMin, pace.movesMax);
       }
       break;
     }
@@ -210,7 +228,7 @@ export function updateCharacter(
             ch.wanderCount++;
           }
         }
-        ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
+        ch.wanderTimer = randomRange(pace.pauseMinSec, pace.pauseMaxSec);
       }
       break;
     }
@@ -256,17 +274,14 @@ export function updateCharacter(
                 restInChair(ch);
               }
               ch.wanderCount = 0;
-              ch.wanderLimit = randomInt(
-                WANDER_MOVES_BEFORE_REST_MIN,
-                WANDER_MOVES_BEFORE_REST_MAX,
-              );
+              ch.wanderLimit = randomInt(pace.movesMin, pace.movesMax);
               ch.frame = 0;
               ch.frameTimer = 0;
               break;
             }
           }
           ch.state = CharacterState.IDLE;
-          ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
+          ch.wanderTimer = randomRange(pace.pauseMinSec, pace.pauseMaxSec);
         }
         ch.frame = 0;
         ch.frameTimer = 0;
