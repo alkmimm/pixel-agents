@@ -25,6 +25,8 @@ export interface ViewerPrefs extends ViewerFeatures {
   music: boolean;
   /** The notification sound when an agent finishes or asks for approval. */
   sound: boolean;
+  /** The agents list beside the office (viewer/AgentsPanel.tsx). */
+  agentsPanel: boolean;
 }
 
 /** The on/off preferences (everything but the label mode). */
@@ -37,6 +39,7 @@ const DEFAULT_PREFS: ViewerPrefs = {
   ghosts: false,
   music: true,
   sound: true,
+  agentsPanel: false,
   // Novidades: off until this browser turns them on.
   sessionTitle: false,
   idleTime: false,
@@ -71,11 +74,14 @@ const FEATURE_OPTIONS: Array<{ key: ViewerToggle; label: string; title: string }
   { key: 'inbox', label: 'Caixa “Precisa de você”', title: 'Lista quem espera você; clique centraliza' },
 ];
 
+/** Saved like the others, but switched by a button of the bar, not a checkbox. */
+const HIDDEN_TOGGLES: ViewerToggle[] = ['agentsPanel'];
+
 function loadPrefs(): ViewerPrefs {
   const prefs = { ...DEFAULT_PREFS };
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, unknown>;
-    for (const { key } of [...OPTIONS, ...FEATURE_OPTIONS]) {
+    for (const key of [...OPTIONS, ...FEATURE_OPTIONS].map((o) => o.key).concat(HIDDEN_TOGGLES)) {
       if (typeof saved[key] === 'boolean') prefs[key] = saved[key];
     }
     // "labels" was the old "always visible" checkbox.
@@ -163,6 +169,15 @@ export function ViewerBar({
         </div>
       )}
       <div className="flex gap-4">
+        <Button
+          size="sm"
+          variant={prefs.agentsPanel ? 'active' : 'default'}
+          className="border-border! shadow-pixel"
+          title="Lista de todos os agentes; clicar leva até o boneco"
+          onClick={() => onToggle('agentsPanel')}
+        >
+          Agentes
+        </Button>
         <Button
           size="sm"
           className="border-border! shadow-pixel"

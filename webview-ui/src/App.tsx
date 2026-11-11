@@ -67,6 +67,7 @@ import {
   type ViewerFeatures,
 } from './viewer/agentSignals.js';
 import { agentStatusView } from './viewer/agentStatus.js';
+import { AgentsPanel } from './viewer/AgentsPanel.js';
 import { AttentionInbox } from './viewer/AttentionInbox.js';
 import { useAttentionTitle } from './viewer/useAttentionTitle.js';
 import { ViewerBar, useViewerPrefs } from './ViewerBar.js';
@@ -877,7 +878,18 @@ function App() {
           onLabelMode={setViewerLabelMode}
         />
       )}
-      {officeReadOnly && features.inbox && (
+      {officeReadOnly && viewerPrefs.agentsPanel && (
+        <AgentsPanel
+          officeState={officeState}
+          agents={agents}
+          agentTools={agentTools}
+          features={features}
+          openAgentId={detailsAgentId}
+          onOpen={openFromInbox}
+          onClose={() => toggleViewerPref('agentsPanel')}
+        />
+      )}
+      {officeReadOnly && features.inbox && !viewerPrefs.agentsPanel && (
         <AttentionInbox
           officeState={officeState}
           agents={agents}
