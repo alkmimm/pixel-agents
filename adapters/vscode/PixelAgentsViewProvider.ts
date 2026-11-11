@@ -70,6 +70,7 @@ import {
   copyHookScript,
   hookProviderById,
   hookProviders,
+  otherAgentProviderById,
   otherAgentProviders,
 } from '../../server/src/providers/index.js';
 import { recentCharactersMessage, recordCharacterUse } from '../../server/src/recentCharacters.js';
@@ -591,7 +592,10 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         // The provider id is echoed by the webview, never originated; an
         // unknown id names nothing to install into, so it is dropped like a
         // junk consent choice.
-        const provider = hookProviderById(message.providerId);
+        // pixel-agents-secure (local): or one of the other agents, from the
+        // panel's own switch (Opções → Outros agentes).
+        const provider =
+          hookProviderById(message.providerId) ?? otherAgentProviderById(message.providerId);
         if (provider) void this.setHooksEnabled(provider, message.enabled as boolean);
       } else if (message.type === 'setUsageBridgeEnabled') {
         const provider = hookProviderById(message.providerId);

@@ -643,12 +643,17 @@ describe('H4: Copilot and Gemini payloads leave only as allowlisted, Claude-shap
   });
 
   it('the route answers for these agents with the same filter, and only for them', async () => {
-    const { hookProviderById } = await import('../src/providers/index.js');
+    const { hookProviderById, otherAgentProviderById } = await import('../src/providers/index.js');
     const { filterHookPayload } = await load();
-    expect(hookProviderById('copilot')?.sanitizeHookPayload).toBe(filterHookPayload);
-    expect(hookProviderById('gemini')?.sanitizeHookPayload).toBe(filterHookPayload);
-    expect(hookProviderById('cursor')).toBeUndefined();
-    expect(hookProviderById('whatever')).toBeUndefined();
+    expect(otherAgentProviderById('copilot')?.sanitizeHookPayload).toBe(filterHookPayload);
+    expect(otherAgentProviderById('gemini')?.sanitizeHookPayload).toBe(filterHookPayload);
+    expect(otherAgentProviderById('cursor')).toBeUndefined();
+    expect(otherAgentProviderById('whatever')).toBeUndefined();
+    // To everything else (the consent answer, the usage bridge) they are still nobody.
+    expect(hookProviderById('copilot')).toBeUndefined();
+    expect(hookProviderById('gemini')).toBeUndefined();
+    const http = fs.readFileSync(path.join(REPO_ROOT, 'server/src/httpServer.ts'), 'utf-8');
+    expect(http).toContain('otherAgentProviderById(providerId)?.sanitizeHookPayload');
   });
 });
 

@@ -23,7 +23,7 @@ import {
   WS_CLOSE_UNAUTHORIZED,
 } from './constants.js';
 import { applyReportedContext } from './contextUsage.js';
-import { hookProviderById } from './providers/index.js';
+import { hookProviderById, otherAgentProviderById } from './providers/index.js';
 import { maskToolLabels } from './secretMask.js';
 import { filterSignalsForClient } from './sessionSignals.js';
 import { isRecord } from './serverConfig.js';
@@ -253,7 +253,11 @@ function registerHookRoute(app: FastifyInstance, options: HttpServerOptions): vo
       // hook script. ~/.pixel-agents/hooks/claude-hook.js is a path shared with
       // the upstream extension, so an unfiltered script can still POST; and a
       // provider with no filter gets nothing through.
-      const sanitize = hookProviderById(providerId)?.sanitizeHookPayload;
+      // pixel-agents-secure (local): the other agents' routes (Copilot, Gemini)
+      // get the very same filter; an id that is neither is still dropped.
+      const sanitize =
+        hookProviderById(providerId)?.sanitizeHookPayload ??
+        otherAgentProviderById(providerId)?.sanitizeHookPayload;
       const event = sanitize && isRecord(request.body) ? sanitize(request.body) : {};
 
       if (event.session_id && event.hook_event_name) {
