@@ -41,6 +41,7 @@ import {
   FILE_WATCHER_POLL_INTERVAL_MS,
   GLOBAL_SCAN_ACTIVE_MAX_AGE_MS,
   GLOBAL_SCAN_ACTIVE_MIN_SIZE,
+  GLOBAL_SCAN_STALE_RESTAT_MS,
   PROJECT_SCAN_INTERVAL_MS,
 } from './constants.js';
 import { clearContextUsage, seedContextUsage } from './contextUsage.js';
@@ -102,6 +103,15 @@ let clearDetectionDeps: {
   persistAgents: () => void;
 } | null = null;
 
+/** pixel-agents-secure (local): files whose head was read for the /clear
+ *  record and lacked it -> bytes read. A transcript is append-only (/clear and
+ *  --resume start a NEW file), so a full head without the record never gains
+ *  it; re-reading it on every 500 ms poll of an idle agent re-read the same
+ *  bytes forever. A shorter head is a file still being written: it is read
+ *  again only once its size changes. */
+const CLEAR_HEAD_BYTES = 8192;
+const headsWithoutClear = new Map<string, number>();
+
 export function startFileWatching(
   agentId: number,
   _filePath: string,
@@ -155,6 +165,8 @@ export function startFileWatching(
         // The main scanner does NOT add non-adopted files to knownJsonlFiles,
         // so /clear files remain findable here.
         for (const file of dirFiles) {
+          const headBytes = headsWithoutClear.get(file);
+          if (headBytes === CLEAR_HEAD_BYTES) continue;
           if (deps.knownJsonlFiles.has(file)) continue;
           if (dismissalTracker!.isDismissed(file)) continue;
           let tracked = false;
@@ -169,11 +181,19 @@ export function startFileWatching(
           // record. Dropped "last-prompt" check because it also appears in --resume
           // sessions. "/clear</command-name>" is specific to /clear (~1.5KB in file).
           try {
-            const buf = Buffer.alloc(8192);
+            if (headBytes !== undefined && fs.statSync(file).size === headBytes) continue;
+            const buf = Buffer.alloc(CLEAR_HEAD_BYTES);
             const fd = fs.openSync(file, 'r');
-            const bytesRead = fs.readSync(fd, buf, 0, 8192, 0);
-            fs.closeSync(fd);
-            if (!buf.toString('utf-8', 0, bytesRead).includes('/clear</command-name>')) continue;
+            let bytesRead: number;
+            try {
+              bytesRead = fs.readSync(fd, buf, 0, CLEAR_HEAD_BYTES, 0);
+            } finally {
+              fs.closeSync(fd);
+            }
+            if (!buf.toString('utf-8', 0, bytesRead).includes('/clear</command-name>')) {
+              headsWithoutClear.set(file, bytesRead);
+              continue;
+            }
           } catch {
             continue;
           }
@@ -1425,6 +1445,27 @@ function directoryNameFromProjectDir(dirName: string): string {
   return parts[parts.length - 1] || dirName;
 }
 
+/** pixel-agents-secure (local): global scans (this root and the extra ones),
+ *  per file, when it was last stat'ed and found older than the activity window.
+ *  Only age-stale files are throttled: a fresh file under the size gate is a
+ *  new session that must be adopted on the next tick. */
+const staleStatAt = new Map<string, number>();
+
+function recentlyFoundStale(file: string, now: number): boolean {
+  const at = staleStatAt.get(file);
+  return at !== undefined && now - at < GLOBAL_SCAN_STALE_RESTAT_MS;
+}
+
+/** Whether the file is outside the activity window; remembers the answer. */
+function isStale(file: string, mtimeMs: number, now: number): boolean {
+  if (now - mtimeMs > GLOBAL_SCAN_ACTIVE_MAX_AGE_MS) {
+    staleStatAt.set(file, now);
+    return true;
+  }
+  staleStatAt.delete(file);
+  return false;
+}
+
 /** Scan every session root the active provider exposes for active sessions
  *  (global discovery — powers the "Watch All Sessions" toggle). */
 function scanGlobalProjectDirs(
@@ -1519,11 +1560,12 @@ function scanGlobalProjectDirs(
         }
       }
       if (tracked) continue;
+      if (recentlyFoundStale(file, now)) continue;
       // Activity filter: >3KB AND modified within 10 minutes
       try {
         const stat = fs.statSync(file);
+        if (isStale(file, stat.mtimeMs, now)) continue;
         if (stat.size < GLOBAL_SCAN_ACTIVE_MIN_SIZE) continue;
-        if (now - stat.mtimeMs > GLOBAL_SCAN_ACTIVE_MAX_AGE_MS) continue;
       } catch {
         continue;
       }
@@ -1591,10 +1633,11 @@ export async function findActiveSessionsInRoots(
         if (!name.endsWith('.jsonl')) continue;
         const file = path.join(dirPath, name);
         if (skip(file)) continue;
+        if (recentlyFoundStale(file, now)) continue;
         try {
           const stat = await fs.promises.stat(file);
+          if (isStale(file, stat.mtimeMs, now)) continue;
           if (stat.size < GLOBAL_SCAN_ACTIVE_MIN_SIZE) continue;
-          if (now - stat.mtimeMs > GLOBAL_SCAN_ACTIVE_MAX_AGE_MS) continue;
         } catch {
           continue;
         }

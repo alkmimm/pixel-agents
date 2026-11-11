@@ -59,6 +59,12 @@ export const CONTEXT_SEED_TAIL_BYTES = 256 * 1024;
 export const GLOBAL_SCAN_ACTIVE_MIN_SIZE = 3_072; // 3KB
 /** Only adopt global JSONL files modified within this window */
 export const GLOBAL_SCAN_ACTIVE_MAX_AGE_MS = 600_000; // 10 minutes
+/** pixel-agents-secure (local): a transcript found older than the window above
+ *  is only stat'ed again after this long. A past session does not change until
+ *  it is resumed, and stat-ing every one of them on every tick dominated the
+ *  idle cost of Watch All Sessions (worse on an extra root over the WSL 9P
+ *  mount). A resumed old session may take up to this long to reappear. */
+export const GLOBAL_SCAN_STALE_RESTAT_MS = 30_000;
 
 // ── Directory Suggestions ───────────────────────────────────
 /** How much of a session transcript is read to recover the working directory it
