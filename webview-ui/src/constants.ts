@@ -11,6 +11,9 @@ export const MAX_ROWS = 64;
 export const WALK_SPEED_PX_PER_SEC = 48;
 export const WALK_FRAME_DURATION_SEC = 0.15;
 export const TYPE_FRAME_DURATION_SEC = 0.3;
+/** pixel-agents-secure (local): with a room per project, how often an idle
+ *  agent's next stroll stays inside its own room (else: the common office). */
+export const ROOM_WANDER_HOME_CHANCE = 0.7;
 export const WANDER_PAUSE_MIN_SEC = 2.0;
 export const WANDER_PAUSE_MAX_SEC = 20.0;
 export const WANDER_MOVES_BEFORE_REST_MIN = 3;

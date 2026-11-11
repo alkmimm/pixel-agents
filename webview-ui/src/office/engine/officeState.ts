@@ -12,6 +12,7 @@ import {
   MAX_PET_ID_LENGTH,
   PET_HIT_HALF_WIDTH,
   PET_HIT_HEIGHT,
+  ROOM_WANDER_HOME_CHANCE,
   WAITING_BUBBLE_DURATION_SEC,
 } from '../../constants.js';
 import { contextUsedShare } from '../contextGauge.js';
@@ -126,6 +127,17 @@ export class OfficeState {
    * `findFreeSeat()` to bias new agents toward seats inside their Directory's Area.
    */
   areaMappings: Record<string, string[]> = {};
+
+  /**
+   * pixel-agents-secure (local): project (directoryName) → the Area labels of
+   * its own room, when the viewer draws one room per project
+   * (viewer/projectRooms.ts). Wins over `areaMappings` for seating, and is
+   * where the project's idle agents mostly wander. Set by `applyRooms()`.
+   */
+  roomAreas: Record<string, string[]> = {};
+  /** Walkable tiles of each room (by Area label), and the ones in no room. */
+  private roomTiles = new Map<string, Tile[]>();
+  private commonTiles: Tile[] = [];
 
   /**
    * The first-run consent greeter, deliberately NOT in `characters`.
@@ -282,6 +294,147 @@ export class OfficeState {
 
     // Reconcile pets against the layout roster (handles editor add/remove)
     this.rebuildPetsFromLayout(layout);
+    this.indexRoomTiles();
+  }
+
+  /** Sort the walkable tiles into each room's and the common ones. */
+  private indexRoomTiles(): void {
+    this.roomTiles = new Map();
+    this.commonTiles = [];
+    const labels = new Set(Object.values(this.roomAreas).flat());
+    if (labels.size === 0) return;
+    const areaTiles = this.layout.areaTiles;
+    for (const tile of this.walkableTiles) {
+      const label = areaTiles?.[tile.row * this.layout.cols + tile.col] ?? null;
+      if (label !== null && labels.has(label)) {
+        const list = this.roomTiles.get(label);
+        if (list) list.push(tile);
+        else this.roomTiles.set(label, [tile]);
+      } else {
+        this.commonTiles.push(tile);
+      }
+    }
+  }
+
+  /** Where an idle agent may wander to next: mostly its own room, sometimes
+   *  the common office (a coffee, the sofa); never someone else's room. With
+   *  no rooms, anywhere. */
+  private wanderPool(ch: Character): Tile[] {
+    if (this.roomTiles.size === 0) return this.walkableTiles;
+    const labels = ch.directoryName ? this.roomAreas[ch.directoryName] : undefined;
+    const home = labels?.map((l) => this.roomTiles.get(l)).find((t) => t && t.length > 0);
+    if (home && Math.random() < ROOM_WANDER_HOME_CHANCE) return home;
+    return this.commonTiles.length > 0 ? this.commonTiles : this.walkableTiles;
+  }
+
+  /** Sit a character in a seat at once, with no walk. */
+  private placeInSeat(ch: Character, seatId: string): void {
+    const seat = this.seats.get(seatId);
+    if (!seat) return;
+    if (ch.seatId && ch.seatId !== seatId) {
+      const old = this.seats.get(ch.seatId);
+      if (old) old.assigned = false;
+    }
+    seat.assigned = true;
+    ch.seatId = seatId;
+    ch.tileCol = seat.seatCol;
+    ch.tileRow = seat.seatRow;
+    ch.x = seat.seatCol * TILE_SIZE + TILE_SIZE / 2;
+    ch.y = seat.seatRow * TILE_SIZE + TILE_SIZE / 2;
+    ch.dir = seat.facingDir;
+    ch.path = [];
+    ch.moveProgress = 0;
+    ch.state = CharacterState.TYPE;
+    ch.frame = 0;
+    ch.frameTimer = 0;
+    if (!ch.isActive) restInChair(ch);
+  }
+
+  /**
+   * pixel-agents-secure (local): draw `layout` (the base office plus the
+   * project rooms, viewer/projectRooms.ts) and seat each project's agents in
+   * their own room. Unlike a plain rebuild, nobody is pulled back to their
+   * chair: everyone stays where they are, and whoever belongs in a room walks
+   * there (`snap`: is put there at once, for a first draw).
+   */
+  applyRooms(layout: OfficeLayout, roomAreas: Record<string, string[]>, snap: boolean): void {
+    const before = new Map<
+      number,
+      Pick<Character, 'x' | 'y' | 'tileCol' | 'tileRow' | 'dir' | 'seatId'>
+    >();
+    for (const ch of this.characters.values()) {
+      before.set(ch.id, {
+        x: ch.x,
+        y: ch.y,
+        tileCol: ch.tileCol,
+        tileRow: ch.tileRow,
+        dir: ch.dir,
+        seatId: ch.seatId,
+      });
+    }
+    this.roomAreas = roomAreas;
+    this.rebuildFromLayout(layout);
+
+    for (const ch of this.characters.values()) {
+      const was = before.get(ch.id);
+      // A character whose seat went away was just given another: leave it there.
+      if (!was || was.seatId !== ch.seatId) {
+        ch.path = [];
+        ch.moveProgress = 0;
+        continue;
+      }
+      ch.x = was.x;
+      ch.y = was.y;
+      ch.tileCol = was.tileCol;
+      ch.tileRow = was.tileRow;
+      ch.dir = was.dir;
+      if (ch.state === CharacterState.WALK) {
+        // The way it was walking may be gone: stop here and decide again.
+        ch.path = [];
+        ch.moveProgress = 0;
+      }
+      const seat = ch.seatId ? this.seats.get(ch.seatId) : undefined;
+      const onOwnSeat =
+        seat !== undefined && seat.seatCol === ch.tileCol && seat.seatRow === ch.tileRow;
+      if (!onOwnSeat && !isWalkable(ch.tileCol, ch.tileRow, this.tileMap, this.blockedTiles)) {
+        // Standing where a room used to be.
+        const spot = this.closestFreeWalkableTile(ch.tileCol, ch.tileRow);
+        if (spot) {
+          ch.tileCol = spot.col;
+          ch.tileRow = spot.row;
+          ch.x = spot.col * TILE_SIZE + TILE_SIZE / 2;
+          ch.y = spot.row * TILE_SIZE + TILE_SIZE / 2;
+          ch.path = [];
+          ch.moveProgress = 0;
+        }
+      }
+    }
+
+    // Whoever has a room and sits elsewhere moves in, while it has a free seat.
+    for (const ch of this.characters.values()) {
+      if (!takesSeat(ch) || !ch.directoryName) continue;
+      const labels = this.roomAreas[ch.directoryName];
+      if (!labels || labels.length === 0) continue;
+      const zone = ch.seatId ? this.seatZone(ch.seatId) : null;
+      if (zone !== null && labels.includes(zone)) continue;
+      const free: string[] = [];
+      for (const [uid, seat] of this.seats) {
+        const label = this.seatZone(uid);
+        if (!seat.assigned && label !== null && labels.includes(label)) free.push(uid);
+      }
+      const target = this.pickFromSeats(free);
+      if (!target) continue;
+      if (snap) {
+        this.placeInSeat(ch, target);
+        continue;
+      }
+      this.reassignSeat(ch.id, target);
+      const seat = this.seats.get(target);
+      const there =
+        seat !== undefined && seat.seatCol === ch.tileCol && seat.seatRow === ch.tileRow;
+      // No way there (the wing is not connected to the office): appear in it.
+      if (ch.seatId === target && ch.path.length === 0 && !there) this.placeInSeat(ch, target);
+    }
   }
 
   /** Move a character to a random walkable tile */
@@ -372,7 +525,10 @@ export class OfficeState {
     }
     if (freeSeats.length === 0) return null;
 
-    const areaLabels = directoryName ? this.areaMappings[directoryName] : undefined;
+    // pixel-agents-secure (local): a project's own room first.
+    const areaLabels = directoryName
+      ? (this.roomAreas[directoryName] ?? this.areaMappings[directoryName])
+      : undefined;
 
     // Stage 1 — in-area seats for the Directory's mapped Area labels.
     if (areaLabels && areaLabels.length > 0) {
@@ -1249,7 +1405,14 @@ export class OfficeState {
       } else {
         // Temporarily unblock own seat so character can pathfind to it
         this.withOwnSeatUnblocked(ch, () =>
-          updateCharacter(ch, dt, this.walkableTiles, this.seats, this.tileMap, this.blockedTiles),
+          updateCharacter(
+            ch,
+            dt,
+            this.wanderPool(ch),
+            this.seats,
+            this.tileMap,
+            this.blockedTiles,
+          ),
         );
       }
 

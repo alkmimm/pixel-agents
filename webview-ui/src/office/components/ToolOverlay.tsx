@@ -63,6 +63,9 @@ interface ToolOverlayProps {
   /** pixel-agents-secure (local): a short mood over the head ("Zzz", a
    *  coffee), shown when no speech bubble is. Unset: none. */
   emote?: (id: number) => string | undefined;
+  /** pixel-agents-secure (local): names written on the office itself (each
+   *  project room's, viewer/projectRooms.ts), at world-pixel positions. */
+  signs?: ReadonlyArray<{ key: string; text: string; x: number; y: number; color: string }>;
 }
 
 /** Derive a short human-readable activity string from tools/status */
@@ -133,6 +136,7 @@ export function ToolOverlay({
   labelMode,
   labelAttention,
   emote,
+  signs,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0);
   const flashRef = useRef<ActivityFlash | null>(null);
@@ -178,6 +182,22 @@ export function ToolOverlay({
 
   return (
     <>
+      {signs?.map((sign) => (
+        <div
+          key={sign.key}
+          className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none whitespace-nowrap leading-none"
+          style={{
+            left: project.toScreenX(sign.x),
+            top: project.toScreenY(sign.y),
+            color: sign.color,
+            fontSize: '18px',
+            textShadow: '1px 1px 0 #000',
+          }}
+          data-testid="room-sign"
+        >
+          {sign.text}
+        </div>
+      ))}
       {allIds.map((id) => {
         const ch = officeState.characters.get(id);
         if (!ch) return null;

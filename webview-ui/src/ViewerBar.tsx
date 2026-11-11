@@ -27,6 +27,8 @@ export interface ViewerPrefs extends ViewerFeatures {
   sound: boolean;
   /** The agents list beside the office (viewer/AgentsPanel.tsx). */
   agentsPanel: boolean;
+  /** One room per project, opened and closed by who is in (viewer/projectRooms.ts). */
+  rooms: boolean;
 }
 
 /** The on/off preferences (everything but the label mode). */
@@ -40,6 +42,7 @@ const DEFAULT_PREFS: ViewerPrefs = {
   music: true,
   sound: true,
   agentsPanel: false,
+  rooms: false,
   // Novidades: off until this browser turns them on.
   sessionTitle: false,
   idleTime: false,
@@ -72,6 +75,12 @@ const FEATURE_OPTIONS: Array<{ key: ViewerToggle; label: string; title: string }
   },
   { key: 'permissionMode', label: 'Modo de permissão', title: 'Destaca sessões em bypass ou dontAsk' },
   { key: 'inbox', label: 'Caixa “Precisa de você”', title: 'Lista quem espera você; clique centraliza' },
+  {
+    key: 'rooms',
+    label: 'Salas por projeto',
+    title:
+      'Cada projeto (com seus worktrees) ganha uma sala, que abre com o primeiro agente e fecha 10 min depois do último sair',
+  },
 ];
 
 /** Saved like the others, but switched by a button of the bar, not a checkbox. */

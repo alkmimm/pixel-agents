@@ -69,6 +69,7 @@ import {
 import { agentStatusView } from './viewer/agentStatus.js';
 import { AgentsPanel } from './viewer/AgentsPanel.js';
 import { AttentionInbox } from './viewer/AttentionInbox.js';
+import { useProjectRooms } from './viewer/useProjectRooms.js';
 import { useAttentionTitle } from './viewer/useAttentionTitle.js';
 import { ViewerBar, useViewerPrefs } from './ViewerBar.js';
 import { canvasDpr } from './viewScale.js';
@@ -298,6 +299,26 @@ function App() {
       if (msg.type === 'settingsLoaded') setTimeout(() => setSoundEnabled(soundPref.current), 0);
     });
   }, [officeReadOnly, viewerPrefs.sound]);
+
+  // pixel-agents-secure (local): one room per project, and its name over its door.
+  const projectRooms = useProjectRooms(
+    officeReadOnly && viewerPrefs.rooms,
+    getOfficeState,
+    agents,
+    layoutReady,
+  );
+  const roomSigns = useMemo(
+    () =>
+      projectRooms.map((room) => ({
+        key: room.label,
+        text: room.project,
+        // Centred on the room's top wall, left of the door.
+        x: (room.col + 2.5) * TILE_SIZE,
+        y: (room.row + 0.5) * TILE_SIZE,
+        color: room.color,
+      })),
+    [projectRooms],
+  );
 
   // pixel-agents-secure (local): the agent whose details panel is open
   // (read-only office only), and the tab title counting who needs you.
@@ -799,6 +820,7 @@ function App() {
               labelExtra={officeReadOnly ? labelExtra : undefined}
               labelMode={officeReadOnly ? viewerPrefs.labelMode : undefined}
               labelAttention={officeReadOnly ? labelAttention : undefined}
+              signs={officeReadOnly ? roomSigns : undefined}
             />
           </div>
 
