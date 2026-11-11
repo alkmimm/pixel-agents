@@ -54,9 +54,16 @@ export function AttentionInbox({ officeState, agents, agentTools, features, onOp
   return (
     <div
       // Right of the zoom buttons (top-left column).
-      className="absolute z-20 pixel-panel flex flex-col gap-2 px-8 py-6 overflow-y-auto"
+      // Under the bar's options (z 20), which open over this corner.
+      className="absolute pixel-panel flex flex-col gap-2 px-8 py-6 overflow-y-auto"
       // Never wider or taller than the window leaves room for.
-      style={{ left: 64, top: 8, width: 'min(260px, calc(100% - 72px))', maxHeight: 'calc(100% - 72px)' }}
+      style={{
+        left: 64,
+        top: 8,
+        width: 'min(260px, calc(100% - 72px))',
+        maxHeight: 'calc(100% - 72px)',
+        zIndex: 15,
+      }}
       data-testid="attention-inbox"
     >
       <span className="text-xs text-text">

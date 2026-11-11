@@ -135,6 +135,10 @@ export class OfficeState {
    * where the project's idle agents mostly wander. Set by `applyRooms()`.
    */
   roomAreas: Record<string, string[]> = {};
+  /** Per tile of `roomTilesOf`, the label of the room it is in. Kept apart
+   *  from the layout's Areas: a room is not something to paint or to list. */
+  private roomTileLabels: Array<string | null> = [];
+  private roomTilesOf: OfficeLayout | null = null;
   /** Walkable tiles of each room (by Area label), and the ones in no room. */
   private roomTiles = new Map<string, Tile[]>();
   private commonTiles: Tile[] = [];
@@ -301,12 +305,10 @@ export class OfficeState {
   private indexRoomTiles(): void {
     this.roomTiles = new Map();
     this.commonTiles = [];
-    const labels = new Set(Object.values(this.roomAreas).flat());
-    if (labels.size === 0) return;
-    const areaTiles = this.layout.areaTiles;
+    if (this.roomTilesOf !== this.layout) return;
     for (const tile of this.walkableTiles) {
-      const label = areaTiles?.[tile.row * this.layout.cols + tile.col] ?? null;
-      if (label !== null && labels.has(label)) {
+      const label = this.roomTileLabels[tile.row * this.layout.cols + tile.col] ?? null;
+      if (label !== null) {
         const list = this.roomTiles.get(label);
         if (list) list.push(tile);
         else this.roomTiles.set(label, [tile]);
@@ -357,23 +359,33 @@ export class OfficeState {
    * chair: everyone stays where they are, and whoever belongs in a room walks
    * there (`snap`: is put there at once, for a first draw).
    */
-  applyRooms(layout: OfficeLayout, roomAreas: Record<string, string[]>, snap: boolean): void {
+  applyRooms(
+    layout: OfficeLayout,
+    roomAreas: Record<string, string[]>,
+    roomTiles: Array<string | null>,
+    snap: boolean,
+    /** Tiles by which everything already in the office moved (rooms opened
+     *  over or left of it). */
+    shift: { col: number; row: number } = { col: 0, row: 0 },
+  ): void {
     const before = new Map<
       number,
       Pick<Character, 'x' | 'y' | 'tileCol' | 'tileRow' | 'dir' | 'seatId'>
     >();
     for (const ch of this.characters.values()) {
       before.set(ch.id, {
-        x: ch.x,
-        y: ch.y,
-        tileCol: ch.tileCol,
-        tileRow: ch.tileRow,
+        x: ch.x + shift.col * TILE_SIZE,
+        y: ch.y + shift.row * TILE_SIZE,
+        tileCol: ch.tileCol + shift.col,
+        tileRow: ch.tileRow + shift.row,
         dir: ch.dir,
         seatId: ch.seatId,
       });
     }
     this.roomAreas = roomAreas;
-    this.rebuildFromLayout(layout);
+    this.roomTileLabels = roomTiles;
+    this.roomTilesOf = layout;
+    this.rebuildFromLayout(layout, shift);
 
     for (const ch of this.characters.values()) {
       const was = before.get(ch.id);
@@ -421,11 +433,11 @@ export class OfficeState {
       if (!takesSeat(ch) || !ch.directoryName) continue;
       const labels = this.roomAreas[ch.directoryName];
       if (!labels || labels.length === 0) continue;
-      const zone = ch.seatId ? this.seatZone(ch.seatId) : null;
+      const zone = ch.seatId ? this.seatRoom(ch.seatId) : null;
       if (zone !== null && labels.includes(zone)) continue;
       const free: string[] = [];
       for (const [uid, seat] of this.seats) {
-        const label = this.seatZone(uid);
+        const label = this.seatRoom(uid);
         if (!seat.assigned && label !== null && labels.includes(label)) free.push(uid);
       }
       const target = this.pickFromSeats(free);
@@ -474,6 +486,13 @@ export class OfficeState {
     const result = fn();
     if (key) this.blockedTiles.add(key);
     return result;
+  }
+
+  /** pixel-agents-secure (local): the room a seat is in, or null. */
+  private seatRoom(uid: string): string | null {
+    const seat = this.seats.get(uid);
+    if (!seat || this.roomTilesOf !== this.layout) return null;
+    return this.roomTileLabels[seat.seatRow * this.layout.cols + seat.seatCol] ?? null;
   }
 
   /** Find the area label assigned to a seat's tile, or null. Public for e2e
@@ -536,7 +555,7 @@ export class OfficeState {
     const roomLabels = directoryName ? this.roomAreas[directoryName] : undefined;
     if (roomLabels && roomLabels.length > 0) {
       const inRoom = freeSeats.filter((uid) => {
-        const label = this.seatZone(uid);
+        const label = this.seatRoom(uid);
         return label !== null && roomLabels.includes(label);
       });
       const pick = this.pickFromSeats(inRoom);
@@ -556,7 +575,10 @@ export class OfficeState {
     }
 
     // Stage 2 — unzoned seats (no area label, or layout has no areas at all).
-    const unzoned = freeSeats.filter((uid) => this.seatZone(uid) === null);
+    // (pixel-agents-secure: nor in a project's room, which is not an Area.)
+    const unzoned = freeSeats.filter(
+      (uid) => this.seatZone(uid) === null && this.seatRoom(uid) === null,
+    );
     const pick2 = this.pickFromSeats(unzoned);
     if (pick2) return pick2;
 

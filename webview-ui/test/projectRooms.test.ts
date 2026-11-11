@@ -145,7 +145,9 @@ describe('project rooms: the composed office', () => {
     expect(layout.cols).toBe(ROOM_PITCH + 1);
     expect(layout.tiles).toHaveLength(layout.cols * layout.rows);
     expect(layout.tileColors).toHaveLength(layout.tiles.length);
-    expect(layout.areaTiles).toHaveLength(layout.tiles.length);
+    // A room is not an Area: nothing is added to the layout's own.
+    expect(layout.areas).toBeUndefined();
+    expect(layout.areaTiles).toBeUndefined();
     for (let r = 0; r < base.rows; r++) {
       for (let c = 0; c < base.cols; c++) {
         expect(layout.tiles[r * layout.cols + c]).toBe(base.tiles[r * base.cols + c]);
@@ -160,11 +162,12 @@ describe('project rooms: the composed office', () => {
     ['walled at the bottom (a door is cut)', false],
   ])('every seat of every room is reachable from the base: %s', (_name, open) => {
     const base = baseOffice(open);
-    const { layout, rooms, connected } = composeOffice(
+    const { layout, rooms, roomTiles, connected } = composeOffice(
       base,
       [room('alfa', 0, 2), room('beta', 2, 1)],
       new Set(),
     );
+    expect(roomTiles).toHaveLength(layout.tiles.length);
     expect(connected).toBe(true);
     expect(rooms.map((r) => [r.project, r.seats])).toEqual([
       ['alfa', 4],
@@ -176,9 +179,8 @@ describe('project rooms: the composed office', () => {
     for (const seat of seats) {
       expect(walk.has(`${seat.col},${seat.row}`)).toBe(true);
       const project = seat.uid.startsWith(roomLabel('alfa')) ? 'alfa' : 'beta';
-      expect(layout.areaTiles?.[seat.row * layout.cols + seat.col]).toBe(roomLabel(project));
+      expect(roomTiles[seat.row * layout.cols + seat.col]).toBe(roomLabel(project));
     }
-    expect(layout.areas?.map((a) => a.label)).toEqual([roomLabel('alfa'), roomLabel('beta')]);
   });
 
   it('the way down does not start under furniture', () => {
@@ -237,3 +239,104 @@ describe('project rooms: the composed office', () => {
     }
   });
 });
+
+describe('project rooms: the compact office', () => {
+  const compact = (specs: RoomState[]) => composeOffice(baseOffice(true), specs, new Set(), true);
+  const seatsOf = (layout: OfficeLayout) =>
+    layout.furniture.filter((f) => f.uid.endsWith(':assento'));
+
+  it('the base office is not drawn; its pets move in', () => {
+    const { layout, connected } = compact([room('alfa', 0)]);
+    expect(connected).toBe(true);
+    expect(layout.furniture.some((f) => f.uid === 'base-desk')).toBe(false);
+    expect(layout.furniture.some((f) => f.type === 'COFFEE')).toBe(true);
+    expect(layout.pets).toEqual([{ id: 'cat', petType: 0 }]);
+    expect(layout.tiles).toHaveLength(layout.cols * layout.rows);
+    expect(layout.tileColors).toHaveLength(layout.tiles.length);
+  });
+
+  it('rooms take both sides of the corridor, so four rooms are two columns wide', () => {
+    const { layout, rooms } = compact([
+      room('a', 0),
+      room('b', 1),
+      room('c', 2, 2),
+      room('d', 3, 3),
+    ]);
+    expect(layout.cols).toBe(ROOM_PITCH + 1 + 2 * ROOM_PITCH);
+    const byProject = new Map(rooms.map((r) => [r.project, r]));
+    // Same column, one over the other.
+    expect(byProject.get('a')?.col).toBe(byProject.get('b')?.col);
+    expect(byProject.get('c')?.col).toBe(byProject.get('d')?.col);
+    expect(byProject.get('b')!.row).toBeLessThan(byProject.get('a')!.row);
+    expect(rooms.map((r) => r.seats).sort()).toEqual([2, 2, 4, 6]);
+  });
+
+  it('every seat is reachable from the lounge, and sits in its own room', () => {
+    const { layout, roomTiles } = compact([
+      room('a', 0, 2),
+      room('b', 1, 3),
+      room('c', 2),
+      room('d', 5, 2),
+    ]);
+    const coffee = layout.furniture.find((f) => f.type === 'COFFEE')!;
+    // The tile right of the sofas, on the lounge's middle row.
+    const walk = reachable(layout, 6, coffee.row);
+    const seats = seatsOf(layout);
+    expect(seats).toHaveLength(4 + 6 + 2 + 4);
+    for (const seat of seats) {
+      expect(walk.has(`${seat.col},${seat.row}`)).toBe(true);
+      const label = roomTiles[seat.row * layout.cols + seat.col];
+      expect(label).not.toBeNull();
+      expect(seat.uid.startsWith(`${label}:`)).toBe(true);
+    }
+  });
+
+  it('nothing walkable opens onto the void or the edge, and row 0 is empty', () => {
+    const { layout } = compact([room('a', 0), room('b', 1, 3), room('c', 4, 2)]);
+    for (let c = 0; c < layout.cols; c++) expect(layout.tiles[c]).toBe(V);
+    for (let r = 0; r < layout.rows; r++) {
+      for (let c = 0; c < layout.cols; c++) {
+        const tile = layout.tiles[r * layout.cols + c];
+        if (tile === W || tile === V) continue;
+        for (const [dc, dr] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ]) {
+          const nc = c + dc;
+          const nr = r + dr;
+          const inside = nc >= 0 && nc < layout.cols && nr >= 0 && nr < layout.rows;
+          expect(inside && layout.tiles[nr * layout.cols + nc] !== V).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('no furniture stands on a wall or outside its room', () => {
+    const { layout } = compact([room('a', 0, 3), room('b', 1, 2)]);
+    for (const item of layout.furniture) {
+      const tile = layout.tiles[item.row * layout.cols + item.col];
+      expect(tile !== W && tile !== V).toBe(true);
+    }
+  });
+
+  it('a room opening on the other side moves no room already there', () => {
+    const one = compact([room('a', 0), room('c', 2)]);
+    const two = compact([room('a', 0), room('c', 2), room('e', 4)]);
+    for (const project of ['a', 'c']) {
+      const before = one.rooms.find((r) => r.project === project);
+      expect(two.rooms.find((r) => r.project === project)).toEqual(before);
+    }
+  });
+
+  it("a room's name goes on the wall across from its door", () => {
+    const { layout, rooms } = compact([room('a', 0), room('b', 1)]);
+    for (const r of rooms) {
+      expect(layout.tiles[r.signRow * layout.cols + r.signCol]).toBe(W);
+      const doorRow = r.signRow === r.row ? r.row + r.height - 1 : r.row;
+      expect(layout.tiles[doorRow * layout.cols + r.signCol]).not.toBe(W);
+    }
+  });
+});
+

@@ -29,6 +29,8 @@ export interface ViewerPrefs extends ViewerFeatures {
   agentsPanel: boolean;
   /** One room per project, opened and closed by who is in (viewer/projectRooms.ts). */
   rooms: boolean;
+  /** With rooms: a small lounge and a corridor instead of the server's office. */
+  compactOffice: boolean;
   /** Coffee breaks, naps and the like (viewer/officeLife.ts). */
   life: boolean;
 }
@@ -45,6 +47,7 @@ const DEFAULT_PREFS: ViewerPrefs = {
   sound: true,
   agentsPanel: false,
   rooms: false,
+  compactOffice: true,
   life: false,
   // Novidades: off until this browser turns them on.
   sessionTitle: false,
@@ -83,6 +86,12 @@ const FEATURE_OPTIONS: Array<{ key: ViewerToggle; label: string; title: string }
     label: 'Salas por projeto',
     title:
       'Cada projeto (com seus worktrees) ganha uma sala, que abre com o primeiro agente e fecha 10 min depois do último sair',
+  },
+  {
+    key: 'compactOffice',
+    label: 'Área comum compacta',
+    title:
+      'Com as salas ligadas: um lounge pequeno e um corredor com salas dos dois lados, no lugar do escritório do servidor (que fica com as mesas vazias). Cabe melhor numa janela pequena',
   },
   {
     key: 'life',
@@ -157,6 +166,8 @@ export function ViewerBar({
     // scroll inside their panel instead of running off the top, and in a
     // narrow one the buttons wrap. The box itself lets clicks through.
     <div
+      // Over the agents list and the "Precisa de você" box (z 15), which sit
+      // where the options open.
       className="absolute left-10 top-10 bottom-10 z-20 flex flex-col items-start justify-end gap-4 pointer-events-none"
       style={{ maxWidth: 'calc(100% - 20px)' }}
     >

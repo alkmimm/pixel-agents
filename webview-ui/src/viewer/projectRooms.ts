@@ -3,21 +3,28 @@
  * is in the office.
  *
  * The layout the server sends (the "base") is never changed or saved. The
- * viewer draws a composed office instead: the base, a corridor under it and,
- * under the corridor, a wing with one room per project that has agents now.
- * A room opens with the project's first agent, grows a row of desks when the
- * project needs more seats, and closes some time after its last agent left.
+ * viewer draws a composed office instead, with one room per project that has
+ * agents now. A room opens with the project's first agent, grows a row of
+ * desks when the project needs more seats, and closes some time after its
+ * last agent left. Two shapes:
  *
- * Each room keeps its slot (its place in the wing) for as long as it lives, so
- * a room closing never moves the others. A room is an Area of the layout
- * (label `sala:<project>`), which is what seats a project's agents in it
- * (OfficeState.roomAreas).
+ *   compact   a small lounge (sofas, the coffee) at the left end of a
+ *             corridor, with the rooms on both sides of the corridor. The
+ *             base office is not drawn: with a room per project its rows of
+ *             desks would stand empty. This keeps the office short and
+ *             close to a window's shape, so it still reads in a small one.
+ *   under     the base office as it is, a corridor under it and one row of
+ *             rooms under the corridor.
+ *
+ * Each room keeps its slot (its place) for as long as it lives, so a room
+ * closing never moves the others. Which tiles belong to which room is
+ * returned beside the layout (`roomTiles`), not written into it as Areas:
+ * that is what seats a project's agents in their room (OfficeState.roomAreas).
  *
  * Free of React and the DOM, so it is tested directly.
  */
 import type { ColorValue } from '../components/ui/types.js';
 import type {
-  AreaDefinition,
   CarpetTile,
   OfficeLayout,
   PlacedFurniture,
@@ -33,8 +40,8 @@ export const ROOM_WIDTH = ROOM_PITCH + 1;
 const STATION_ROWS = 4;
 const SEATS_PER_STATION_ROW = 2;
 export const MAX_STATION_ROWS = 3;
-/** Rooms side by side; past this, new projects stay in the base office. */
-export const MAX_ROOMS = 7;
+/** Rooms at most; past this, new projects stay in the common office. */
+export const MAX_ROOMS = 8;
 /** An empty room stays this long, so a session reopened soon finds it. */
 export const ROOM_LINGER_MS = 10 * 60_000;
 
@@ -44,6 +51,14 @@ const DESK = 'DESK_FRONT';
 const PC = 'PC_FRONT_OFF';
 const CHAIR = 'CUSHIONED_BENCH';
 const PLANT = 'PLANT';
+
+/** The lounge of the compact office: 7x7 inside, centred on the corridor. */
+const LOUNGE_HALF = 3;
+const WALL_COLOR: ColorValue = { h: 222, s: 28, b: -100, c: -55 };
+const LOUNGE_FLOOR: TileTypeVal = TileType.FLOOR_1;
+const LOUNGE_COLOR: ColorValue = { h: 262, s: 34, b: -30, c: -80 };
+const CORRIDOR_FLOOR: TileTypeVal = TileType.FLOOR_9;
+const CORRIDOR_COLOR: ColorValue = { h: 222, s: 8, b: -22, c: -10 };
 
 export interface RoomState {
   project: string;
@@ -63,13 +78,23 @@ export interface PlacedRoom {
   width: number;
   height: number;
   seats: number;
-  /** Hex colour of the room (its Area colour, its name's colour). */
+  /** Hex colour of the room's name. */
   color: string;
+  /** The wall the room's name is written on: its far wall from the corridor
+   *  (the near one has the door). Tile of its middle. */
+  signCol: number;
+  signRow: number;
 }
 
 export interface ComposedOffice {
   layout: OfficeLayout;
   rooms: PlacedRoom[];
+  /** Per tile of `layout`, the label of the room it is in (null: none). */
+  roomTiles: Array<string | null>;
+  /** A fixed point of the office (the corridor's start, in the compact one):
+   *  when rooms open over it everything else moves down, and this tells by
+   *  how much. */
+  origin: { col: number; row: number };
   /** Whether a way from the base office to the corridor was found. */
   connected: boolean;
 }
@@ -164,53 +189,248 @@ function isFloor(tile: TileTypeVal | undefined): boolean {
   return tile !== undefined && tile !== TileType.WALL && tile !== TileType.VOID;
 }
 
+/** The office being drawn: its tiles, their colours and their rooms. */
+class Plan {
+  readonly tiles: TileTypeVal[];
+  readonly tileColors: Array<ColorValue | null>;
+  readonly roomTiles: Array<string | null>;
+  readonly furniture: PlacedFurniture[] = [];
+  readonly rooms: PlacedRoom[] = [];
+  readonly cols: number;
+  readonly rows: number;
+  private readonly wallColor: ColorValue | null;
+
+  constructor(cols: number, rows: number, wallColor: ColorValue | null) {
+    this.cols = cols;
+    this.rows = rows;
+    this.wallColor = wallColor;
+    const size = cols * rows;
+    this.tiles = new Array<TileTypeVal>(size).fill(TileType.VOID);
+    this.tileColors = new Array<ColorValue | null>(size).fill(null);
+    this.roomTiles = new Array<string | null>(size).fill(null);
+  }
+
+  at(c: number, r: number): number {
+    return r * this.cols + c;
+  }
+
+  put(c: number, r: number, tile: TileTypeVal, color: ColorValue | null): void {
+    this.tiles[this.at(c, r)] = tile;
+    this.tileColors[this.at(c, r)] = color ? { ...color } : null;
+  }
+
+  wall(c: number, r: number): void {
+    this.put(c, r, TileType.WALL, this.wallColor);
+  }
+
+  /** Wall every void tile around (c,r): nothing walkable opens onto nothing. */
+  enclose(c: number, r: number): void {
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        const nc = c + dc;
+        const nr = r + dr;
+        if (nc < 0 || nc >= this.cols || nr < 0 || nr >= this.rows) continue;
+        if (this.tiles[this.at(nc, nr)] === TileType.VOID) this.wall(nc, nr);
+      }
+    }
+  }
+
+  /**
+   * One project's room, its left wall on column `x0` and its door on row
+   * `doorRow`, the room lying under the door (`side` 1) or over it (-1).
+   */
+  room(spec: RoomState, x0: number, doorRow: number, side: 1 | -1): void {
+    const label = roomLabel(spec.project);
+    const hue = projectHue(spec.project);
+    const floorColor: ColorValue = { h: hue, s: 40, b: -42, c: -85 };
+    const depth = spec.stationRows * STATION_ROWS;
+    const farRow = doorRow + side * (depth + 1);
+    const top = Math.min(doorRow, farRow);
+    const bottom = Math.max(doorRow, farRow);
+    for (let r = top; r <= bottom; r++) {
+      this.wall(x0, r);
+      this.wall(x0 + ROOM_PITCH, r);
+    }
+    for (let c = x0; c <= x0 + ROOM_PITCH; c++) {
+      this.wall(c, top);
+      this.wall(c, bottom);
+    }
+    for (let r = top + 1; r < bottom; r++) {
+      for (let c = x0 + 1; c < x0 + ROOM_PITCH; c++) {
+        this.put(c, r, ROOM_FLOOR, floorColor);
+        this.roomTiles[this.at(c, r)] = label;
+      }
+    }
+    // The door, on the free column between the two desks.
+    this.put(x0 + 4, doorRow, ROOM_FLOOR, floorColor);
+    this.roomTiles[this.at(x0 + 4, doorRow)] = label;
+
+    // Rows of desks from the top; each ends in a free row, so the last free
+    // row is the one by the bottom wall (and by the door, in a room over it).
+    for (let k = 0; k < spec.stationRows; k++) {
+      const deskRow = top + 1 + k * STATION_ROWS;
+      for (let j = 0; j < SEATS_PER_STATION_ROW; j++) {
+        const deskCol = x0 + 1 + j * 4;
+        const uid = `${label}:${k}:${j}`;
+        this.furniture.push({ uid: `${uid}:mesa`, type: DESK, col: deskCol, row: deskRow });
+        this.furniture.push({ uid: `${uid}:pc`, type: PC, col: deskCol + 1, row: deskRow });
+        this.furniture.push({
+          uid: `${uid}:assento`,
+          type: CHAIR,
+          col: deskCol + 1,
+          row: deskRow + 2,
+        });
+      }
+    }
+    // Two tiles tall (its top is walkable background): it stands on the last row.
+    this.furniture.push({ uid: `${label}:planta`, type: PLANT, col: x0 + 1, row: bottom - 2 });
+
+    this.rooms.push({
+      project: spec.project,
+      label,
+      col: x0,
+      row: top,
+      width: ROOM_WIDTH,
+      height: depth + 2,
+      seats: spec.stationRows * SEATS_PER_STATION_ROW,
+      color: hueToHex(hue),
+      signCol: x0 + ROOM_PITCH / 2,
+      signRow: farRow,
+    });
+  }
+}
+
 /**
- * The base office with the rooms' wing under it. `blocked` holds the base's
- * furniture-blocked tiles as `col,row` keys (the way down must not start
- * under a desk). With no rooms, the base itself is returned.
+ * The office to draw for these rooms. `compact`: the lounge-and-corridor
+ * office (see the top of this file); else the base with the rooms under it.
+ * `blocked` holds the base's furniture-blocked tiles as `col,row` keys (the
+ * way down must not start under a desk). With no rooms, the base itself.
  */
 export function composeOffice(
   base: OfficeLayout,
   specs: readonly RoomState[],
   blocked: ReadonlySet<string>,
+  compact = false,
 ): ComposedOffice {
-  if (specs.length === 0) return { layout: base, rooms: [], connected: true };
+  if (specs.length === 0) {
+    return { layout: base, rooms: [], roomTiles: [], origin: { col: 0, row: 0 }, connected: true };
+  }
+  const bySlot = [...specs].sort((a, b) => a.slot - b.slot);
+  return compact ? composeCompact(base, bySlot) : composeUnder(base, bySlot, blocked);
+}
 
+/** Slots alternate sides of the corridor: 0 under it, 1 over it, 2 under... */
+function composeCompact(base: OfficeLayout, specs: readonly RoomState[]): ComposedOffice {
+  const over = specs.filter((s) => s.slot % 2 === 1);
+  const under = specs.filter((s) => s.slot % 2 === 0);
+  const deepest = (list: readonly RoomState[]) =>
+    list.length > 0 ? Math.max(...list.map((s) => s.stationRows)) * STATION_ROWS + 2 : 0;
+  // Rows over and under the corridor: the lounge's half, or the deepest room.
+  const above = Math.max(LOUNGE_HALF + 1, deepest(over));
+  const below = Math.max(LOUNGE_HALF + 1, deepest(under));
+  // Row 0 stays empty: the top walls are drawn taller than their tile.
+  const corridorRow = 1 + above;
+  const columns = Math.floor(Math.max(...specs.map((s) => s.slot)) / 2) + 1;
+  const plan = new Plan(ROOM_WIDTH + columns * ROOM_PITCH, corridorRow + below + 1, WALL_COLOR);
+
+  // ── The lounge: columns 0-8, centred on the corridor, open to it.
+  const loungeTop = corridorRow - LOUNGE_HALF - 1;
+  const loungeBottom = corridorRow + LOUNGE_HALF + 1;
+  for (let r = loungeTop; r <= loungeBottom; r++) {
+    for (let c = 0; c <= ROOM_PITCH; c++) {
+      const edge = r === loungeTop || r === loungeBottom || c === 0 || c === ROOM_PITCH;
+      if (edge) plan.wall(c, r);
+      else plan.put(c, r, LOUNGE_FLOOR, LOUNGE_COLOR);
+    }
+  }
+  plan.put(ROOM_PITCH, corridorRow, CORRIDOR_FLOOR, CORRIDOR_COLOR);
+  const add = (name: string, type: string, col: number, row: number) =>
+    plan.furniture.push({ uid: `comum:${name}`, type, col, row });
+  // Sofas around the coffee table, as far from the door as the room allows.
+  const tableCol = 3;
+  const tableRow = corridorRow - 1;
+  add('mesa', 'COFFEE_TABLE', tableCol, tableRow);
+  add('sofa-cima', 'SOFA_FRONT', tableCol, tableRow - 1);
+  add('sofa-baixo', 'SOFA_BACK', tableCol, tableRow + 2);
+  add('sofa-esq', 'SOFA_SIDE', tableCol - 1, tableRow);
+  add('sofa-dir', 'SOFA_SIDE:left', tableCol + 2, tableRow);
+  add('cafe', 'COFFEE', tableCol, tableRow + 1);
+  add('planta-1', PLANT, 1, loungeTop + 1);
+  add('planta-2', 'PLANT_2', ROOM_PITCH - 1, loungeTop + 1);
+  add('lixeira', 'BIN', 1, loungeBottom - 1);
+
+  // ── The corridor, walled on both sides (the rooms' doors are cut after).
+  for (let c = ROOM_WIDTH; c < plan.cols; c++) {
+    if (c === plan.cols - 1) plan.wall(c, corridorRow);
+    else plan.put(c, corridorRow, CORRIDOR_FLOOR, CORRIDOR_COLOR);
+  }
+  for (let c = ROOM_PITCH; c < plan.cols; c++) {
+    plan.wall(c, corridorRow - 1);
+    plan.wall(c, corridorRow + 1);
+  }
+
+  for (const spec of specs) {
+    const x0 = ROOM_PITCH + Math.floor(spec.slot / 2) * ROOM_PITCH;
+    if (spec.slot % 2 === 0) plan.room(spec, x0, corridorRow + 1, 1);
+    else plan.room(spec, x0, corridorRow - 1, -1);
+  }
+
+  const layout: OfficeLayout = {
+    version: 1,
+    cols: plan.cols,
+    rows: plan.rows,
+    tiles: plan.tiles,
+    tileColors: plan.tileColors,
+    furniture: plan.furniture,
+    ...(base.layoutRevision !== undefined ? { layoutRevision: base.layoutRevision } : {}),
+    ...(base.pets ? { pets: base.pets.map((p) => ({ ...p })) } : {}),
+  };
+  return {
+    layout,
+    rooms: plan.rooms,
+    roomTiles: plan.roomTiles,
+    origin: { col: 0, row: corridorRow },
+    connected: true,
+  };
+}
+
+function composeUnder(
+  base: OfficeLayout,
+  specs: readonly RoomState[],
+  blocked: ReadonlySet<string>,
+): ComposedOffice {
   const slots = Math.max(...specs.map((s) => s.slot)) + 1;
-  const cols = Math.max(base.cols, slots * ROOM_PITCH + 1);
   const corridorRow = base.rows;
   const wallRow = base.rows + 1;
   const deepest = Math.max(...specs.map((s) => s.stationRows)) * STATION_ROWS;
-  const rows = wallRow + deepest + 2;
-  const size = cols * rows;
-
-  const tiles: TileTypeVal[] = new Array<TileTypeVal>(size).fill(TileType.VOID);
-  const tileColors: Array<ColorValue | null> = new Array<ColorValue | null>(size).fill(null);
+  const wallIndex = base.tiles.indexOf(TileType.WALL);
+  const plan = new Plan(
+    Math.max(base.cols, slots * ROOM_PITCH + 1),
+    wallRow + deepest + 2,
+    wallIndex >= 0 ? (base.tileColors?.[wallIndex] ?? null) : null,
+  );
+  const { cols } = plan;
+  const size = cols * plan.rows;
   const carpetTiles: Array<CarpetTile | null> | undefined = base.carpetTiles
     ? new Array<CarpetTile | null>(size).fill(null)
     : undefined;
-  const areaTiles: Array<string | null> = new Array<string | null>(size).fill(null);
+  const areaTiles: Array<string | null> | undefined = base.areaTiles
+    ? new Array<string | null>(size).fill(null)
+    : undefined;
   for (let r = 0; r < base.rows; r++) {
     for (let c = 0; c < base.cols; c++) {
       const from = r * base.cols + c;
-      const to = r * cols + c;
-      tiles[to] = base.tiles[from];
-      tileColors[to] = base.tileColors?.[from] ?? null;
+      const to = plan.at(c, r);
+      plan.tiles[to] = base.tiles[from];
+      plan.tileColors[to] = base.tileColors?.[from] ?? null;
       if (carpetTiles) carpetTiles[to] = base.carpetTiles?.[from] ?? null;
-      areaTiles[to] = base.areaTiles?.[from] ?? null;
+      if (areaTiles) areaTiles[to] = base.areaTiles?.[from] ?? null;
     }
   }
+  plan.furniture.push(...base.furniture);
 
-  const at = (c: number, r: number) => r * cols + c;
   const baseTile = (c: number, r: number): TileTypeVal | undefined =>
     c >= 0 && c < base.cols && r >= 0 && r < base.rows ? base.tiles[r * base.cols + c] : undefined;
-  const wallIndex = base.tiles.indexOf(TileType.WALL);
-  const wallColor = wallIndex >= 0 ? (base.tileColors?.[wallIndex] ?? null) : null;
-  const put = (c: number, r: number, tile: TileTypeVal, color: ColorValue | null) => {
-    tiles[at(c, r)] = tile;
-    tileColors[at(c, r)] = color ? { ...color } : null;
-  };
-  const wall = (c: number, r: number) => put(c, r, TileType.WALL, wallColor);
 
   // ── The way down: the column where the base's lowest tile is open floor,
   // or a wall with open floor right above it (a door is cut there). The
@@ -250,96 +470,41 @@ export function composeOffice(
   const opened: Array<{ c: number; r: number }> = [];
   if (way) {
     for (let r = way.doorRow ?? way.fromRow + 1; r < base.rows; r++) {
-      put(way.col, r, corridorFloor, corridorColor);
+      plan.put(way.col, r, corridorFloor, corridorColor);
       opened.push({ c: way.col, r });
     }
   }
 
   // ── The corridor, and the wall under it (the rooms' top wall).
   for (let c = 0; c < cols; c++) {
-    if (c === 0 || c === cols - 1) wall(c, corridorRow);
+    if (c === 0 || c === cols - 1) plan.wall(c, corridorRow);
     else {
-      put(c, corridorRow, corridorFloor, corridorColor);
+      plan.put(c, corridorRow, corridorFloor, corridorColor);
       opened.push({ c, r: corridorRow });
     }
-    wall(c, wallRow);
+    plan.wall(c, wallRow);
   }
   // Close what the corridor and the way down opened onto nothing.
-  for (const { c, r } of opened) {
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        const nc = c + dc;
-        const nr = r + dr;
-        if (nc < 0 || nc >= cols || nr < 0 || nr >= rows) continue;
-        if (tiles[at(nc, nr)] === TileType.VOID) wall(nc, nr);
-      }
-    }
-  }
+  for (const { c, r } of opened) plan.enclose(c, r);
 
-  // ── The rooms.
-  const furniture: PlacedFurniture[] = [...base.furniture];
-  const areas: AreaDefinition[] = [...(base.areas ?? [])];
-  const rooms: PlacedRoom[] = [];
-  for (const spec of [...specs].sort((a, b) => a.slot - b.slot)) {
-    const label = roomLabel(spec.project);
-    const hue = projectHue(spec.project);
-    const color = hueToHex(hue);
-    const floorColor: ColorValue = { h: hue, s: 40, b: -42, c: -85 };
-    const x0 = spec.slot * ROOM_PITCH;
-    const depth = spec.stationRows * STATION_ROWS;
-    const bottom = wallRow + depth + 1;
-    for (let r = wallRow; r <= bottom; r++) {
-      wall(x0, r);
-      wall(x0 + ROOM_PITCH, r);
-    }
-    for (let c = x0; c <= x0 + ROOM_PITCH; c++) wall(c, bottom);
-    for (let r = wallRow + 1; r < bottom; r++) {
-      for (let c = x0 + 1; c < x0 + ROOM_PITCH; c++) {
-        put(c, r, ROOM_FLOOR, floorColor);
-        areaTiles[at(c, r)] = label;
-      }
-    }
-    // The door, on the free column between the two desks.
-    put(x0 + 4, wallRow, ROOM_FLOOR, floorColor);
-    areaTiles[at(x0 + 4, wallRow)] = label;
-
-    for (let k = 0; k < spec.stationRows; k++) {
-      const top = wallRow + 1 + k * STATION_ROWS;
-      for (let j = 0; j < SEATS_PER_STATION_ROW; j++) {
-        const deskCol = x0 + 1 + j * 4;
-        const uid = `${label}:${k}:${j}`;
-        furniture.push({ uid: `${uid}:mesa`, type: DESK, col: deskCol, row: top });
-        furniture.push({ uid: `${uid}:pc`, type: PC, col: deskCol + 1, row: top });
-        furniture.push({ uid: `${uid}:assento`, type: CHAIR, col: deskCol + 1, row: top + 2 });
-      }
-    }
-    // Two tiles tall (its top is walkable background): it stands on the last row.
-    furniture.push({ uid: `${label}:planta`, type: PLANT, col: x0 + 1, row: bottom - 2 });
-
-    areas.push({ label, color });
-    rooms.push({
-      project: spec.project,
-      label,
-      col: x0,
-      row: wallRow,
-      width: ROOM_WIDTH,
-      height: depth + 2,
-      seats: spec.stationRows * SEATS_PER_STATION_ROW,
-      color,
-    });
-  }
+  for (const spec of specs) plan.room(spec, spec.slot * ROOM_PITCH, wallRow, 1);
 
   const layout: OfficeLayout = {
     ...base,
     cols,
-    rows,
-    tiles,
-    tileColors,
-    furniture,
-    areas,
-    areaTiles,
+    rows: plan.rows,
+    tiles: plan.tiles,
+    tileColors: plan.tileColors,
+    furniture: plan.furniture,
     ...(carpetTiles ? { carpetTiles } : {}),
+    ...(areaTiles ? { areaTiles } : {}),
     ...(base.pets ? { pets: base.pets.map((p) => ({ ...p })) } : {}),
   };
-  return { layout, rooms, connected: way !== null };
+  return {
+    layout,
+    rooms: plan.rooms,
+    roomTiles: plan.roomTiles,
+    origin: { col: 0, row: 0 },
+    connected: way !== null,
+  };
 }

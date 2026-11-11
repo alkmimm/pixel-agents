@@ -308,14 +308,15 @@ function App() {
   const zoomRef = useRef(editor.zoom);
   zoomRef.current = editor.zoom;
   const { panRef: officePanRef } = editor;
-  // The map is drawn centred, so one that grows to the right and down would
-  // push what is on screen up and to the left: pan by half the growth.
+  // The map is drawn centred, so one that grows would push what is on screen
+  // away by half the growth; and what moved inside the map (rooms opened over
+  // it) moved on screen by that much. Pan by both, the other way.
   const keepViewOnResize = useCallback(
-    (dCols: number, dRows: number) => {
-      const half = (TILE_SIZE * zoomRef.current) / 2;
+    (dCols: number, dRows: number, shiftCols: number, shiftRows: number) => {
+      const tile = TILE_SIZE * zoomRef.current;
       officePanRef.current = {
-        x: officePanRef.current.x + dCols * half,
-        y: officePanRef.current.y + dRows * half,
+        x: officePanRef.current.x + (dCols / 2 - shiftCols) * tile,
+        y: officePanRef.current.y + (dRows / 2 - shiftRows) * tile,
       };
     },
     [officePanRef],
@@ -325,6 +326,7 @@ function App() {
     getOfficeState,
     agents,
     layoutReady,
+    viewerPrefs.compactOffice,
     keepViewOnResize,
   );
   const roomSigns = useMemo(
@@ -332,10 +334,10 @@ function App() {
       projectRooms.map((room) => ({
         key: room.label,
         text: room.project,
-        // Centred on the room's top wall, left of the door.
-        x: (room.col + 2.5) * TILE_SIZE,
-        y: (room.row + 0.5) * TILE_SIZE,
-        width: 3 * TILE_SIZE,
+        // Along the wall across the room from its door.
+        x: (room.signCol + 0.5) * TILE_SIZE,
+        y: (room.signRow + 0.5) * TILE_SIZE,
+        width: (room.width - 2) * TILE_SIZE,
         color: room.color,
       })),
     [projectRooms],

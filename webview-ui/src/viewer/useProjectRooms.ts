@@ -27,9 +27,11 @@ export function useProjectRooms(
   getOfficeState: () => OfficeState,
   agents: number[],
   layoutReady: boolean,
-  /** The office grew or shrank by this many tiles (to the right and down)
-   *  with the view as it was: keep what was on screen where it was. */
-  onResize: (dCols: number, dRows: number) => void,
+  /** The compact office (a lounge and a corridor) instead of the base. */
+  compact: boolean,
+  /** The office grew or shrank by `d` tiles, and what was already in it moved
+   *  by `shift` tiles: keep what was on screen where it was. */
+  onResize: (dCols: number, dRows: number, shiftCols: number, shiftRows: number) => void,
 ): PlacedRoom[] {
   const baseRef = useRef<OfficeLayout | null>(null);
   /** The server sent a layout: what is on screen now is the new base. */
@@ -38,6 +40,9 @@ export function useProjectRooms(
   const composedLayoutRef = useRef<OfficeLayout | null>(null);
   /** The office size the view is lined up with (null: not yet with rooms). */
   const viewSizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  /** The fixed point of the office on screen (ComposedOffice.origin). */
+  const originRef = useRef({ col: 0, row: 0 });
+  const drawnCompactRef = useRef(false);
   const onResizeRef = useRef(onResize);
   onResizeRef.current = onResize;
   const planRef = useRef<RoomState[]>([]);
@@ -85,7 +90,7 @@ export function useProjectRooms(
 
     if (!enabled) {
       if (composedRef.current) {
-        os.applyRooms(base, {}, false);
+        os.applyRooms(base, {}, [], false);
         composedRef.current = false;
         composedLayoutRef.current = null;
         viewSizeRef.current = null;
@@ -104,6 +109,14 @@ export function useProjectRooms(
       counts.set(ch.directoryName, (counts.get(ch.directoryName) ?? 0) + 1);
     }
     const plan = planRooms(planRef.current, counts, Date.now());
+    // The compact office is only drawn while there is a room.
+    const drawCompact = compact && plan.length > 0;
+    if (drawnCompactRef.current !== drawCompact) {
+      // Another office altogether: put everyone in place and show it whole.
+      drawnCompactRef.current = drawCompact;
+      freshBaseRef.current = true;
+      viewSizeRef.current = null;
+    }
     const unchanged = sameRooms(plan, planRef.current) && !freshBaseRef.current;
     planRef.current = plan;
     if (unchanged) {
@@ -112,11 +125,20 @@ export function useProjectRooms(
       return;
     }
 
-    const composed = composeOffice(base, plan, getBlockedTiles(base.furniture));
+    const composed = composeOffice(base, plan, getBlockedTiles(base.furniture), compact);
     const roomAreas: Record<string, string[]> = {};
     for (const room of composed.rooms) roomAreas[room.project] = [room.label];
     // On a fresh base everyone is put in place at once; later, they walk.
-    os.applyRooms(composed.layout, roomAreas, freshBaseRef.current || !composed.connected);
+    // Rooms opening over the corridor push the rest down: everyone moves along.
+    const fresh = freshBaseRef.current;
+    const shift = fresh
+      ? { col: 0, row: 0 }
+      : {
+          col: composed.origin.col - originRef.current.col,
+          row: composed.origin.row - originRef.current.row,
+        };
+    originRef.current = composed.origin;
+    os.applyRooms(composed.layout, roomAreas, composed.roomTiles, fresh || !composed.connected, shift);
     freshBaseRef.current = false;
     composedRef.current = composed.rooms.length > 0;
     composedLayoutRef.current = composedRef.current ? composed.layout : null;
@@ -128,11 +150,11 @@ export function useProjectRooms(
     const was = viewSizeRef.current;
     viewSizeRef.current = size;
     if (!was) {
-      if (size.cols !== base.cols || size.rows !== base.rows) setTimeout(() => fitOffice(), 0);
-    } else if (was.cols !== size.cols || was.rows !== size.rows) {
-      onResizeRef.current(size.cols - was.cols, size.rows - was.rows);
+      if (composed.layout !== base) setTimeout(() => fitOffice(), 0);
+    } else if (was.cols !== size.cols || was.rows !== size.rows || shift.col || shift.row) {
+      onResizeRef.current(size.cols - was.cols, size.rows - was.rows, shift.col, shift.row);
     }
-  }, [enabled, layoutReady, agents, beat, getOfficeState]);
+  }, [enabled, layoutReady, agents, beat, compact, getOfficeState]);
 
   return placed;
 }
