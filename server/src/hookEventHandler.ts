@@ -8,6 +8,7 @@ import type { SessionRouter } from './sessionRouter.js';
 import { getInlineTeammates, hasInlineTeammates, hasPromotedBackgroundAgent } from './teamUtils.js';
 import { cancelPermissionTimer, cancelWaitingTimer } from './timerManager.js';
 import { notifyBackgroundAgentCompleted } from './transcriptParser.js';
+import { CURSOR_AGENT_KIND } from './providers/hook/claude/hooks/cursorPayload.js';
 import type { AgentState } from './types.js';
 
 const debug = process.env.PIXEL_AGENTS_DEBUG !== '0';
@@ -263,6 +264,30 @@ export class HookEventHandler {
           `[Pixel Agents] Hook: SessionEnd discarded pending external session ${event.session_id.slice(0, 8)}...`,
         );
       return;
+    }
+
+    // pixel-agents-secure (local): a Cursor session (cursorPayload.ts) is taken
+    // in from whichever event comes first. Cursor does not send its session
+    // start again to a server that started after it, and there is no
+    // transcript to find the session by.
+    const cursorCwd =
+      (event as Record<string, unknown>).agent_kind === CURSOR_AGENT_KIND &&
+      typeof event.cwd === 'string' &&
+      event.cwd.length > 0
+        ? event.cwd
+        : undefined;
+    if (
+      cursorCwd !== undefined &&
+      normEvent.kind !== 'sessionEnd' &&
+      this.sessionRouter.resolve(event.session_id) === undefined &&
+      !this.sessionRouter.hasPending(event.session_id) &&
+      ![...this.agents.values()].some((a) => a.sessionId === event.session_id)
+    ) {
+      this.sessionRouter.storePending(event.session_id, {
+        sessionId: event.session_id,
+        transcriptPath: undefined,
+        cwd: cursorCwd,
+      });
     }
 
     // If a confirmation event arrives for a pending external session, create the agent first

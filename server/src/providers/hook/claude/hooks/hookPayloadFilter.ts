@@ -17,6 +17,7 @@
 
 import { TASK_DESCRIPTION_DISPLAY_MAX_LENGTH } from '../../../../constants.js';
 import { bashCommandLabel } from './bashCommandLabel.js';
+import { CURSOR_AGENT_KIND, isCursorPayload, translateCursorPayload } from './cursorPayload.js';
 
 /** Top-level string fields the server reads (event routing, lifecycle, teams). */
 const TOP_LEVEL_STRINGS = [
@@ -75,8 +76,14 @@ function filterToolInput(input: unknown): Record<string, unknown> | undefined {
 
 /** The forwarded subset of one hook payload. Never includes `tool_response`,
  *  prompt text, or any field not listed above. */
-export function filterHookPayload(data: Record<string, unknown>): Record<string, unknown> {
+export function filterHookPayload(raw: Record<string, unknown>): Record<string, unknown> {
+  // pixel-agents-secure (local): Cursor runs this hook too (cursorPayload.ts).
+  // Its payload is first rewritten as the Claude-shaped event it stands for,
+  // then goes through the very same allowlist.
+  const data = isCursorPayload(raw) ? translateCursorPayload(raw) : raw;
   const out: Record<string, unknown> = {};
+  // The only value this marker may take; anything else is not forwarded.
+  if (data.agent_kind === CURSOR_AGENT_KIND) out.agent_kind = CURSOR_AGENT_KIND;
   for (const key of TOP_LEVEL_STRINGS) {
     const value = capped(data[key], MAX_FORWARDED_STRING);
     if (value !== undefined) out[key] = value;

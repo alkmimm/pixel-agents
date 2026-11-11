@@ -46,6 +46,12 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  // pixel-agents-secure (local): started by Cursor (it runs Claude Code's hooks
+  // by itself). Its environment says so even when the payload does not.
+  if (typeof process.env['CURSOR_VERSION'] === 'string' && data.cursor_version === undefined) {
+    data.cursor_version = process.env['CURSOR_VERSION'];
+  }
+
   const eventName = (data.hook_event_name as string | undefined) ?? '?';
   const sid = (data.session_id as string | undefined)?.slice(0, 8) ?? '?';
 

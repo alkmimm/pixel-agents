@@ -420,6 +420,125 @@ describe('H7: no CORS and a loopback-only Host on every request', () => {
   });
 });
 
+describe('H4: a Cursor payload leaves only as an allowlisted, Claude-shaped event', () => {
+  const load = async () => {
+    const { filterHookPayload } =
+      await import('../src/providers/hook/claude/hooks/hookPayloadFilter.js');
+    const { claudeProvider } = await import('../src/providers/hook/claude/claude.js');
+    return { filterHookPayload, claudeProvider };
+  };
+  // What Cursor's documentation says a hook receives; SECRET marks everything
+  // that must never leave the hook process.
+  const cursor = (extra: Record<string, unknown>) => ({
+    conversation_id: 'conv-1',
+    generation_id: 'gen-1',
+    cursor_version: '2.0.0',
+    model: 'some-model',
+    user_email: 'SECRET@example.com',
+    transcript_path: '/home/u/.cursor/projects/SECRET/agent-transcripts/x/x.jsonl',
+    workspace_roots: ['/home/u/repos/meu-projeto', '/home/u/outro'],
+    ...extra,
+  });
+
+  it('a tool call keeps its name, the file name and the program and verb; nothing else', async () => {
+    const { filterHookPayload, claudeProvider } = await load();
+    const filtered = filterHookPayload(
+      cursor({
+        hook_event_name: 'preToolUse',
+        tool_name: 'Shell',
+        tool_use_id: 'SECRET-id',
+        cwd: '/home/u/repos/meu-projeto/sub',
+        tool_input: { command: 'PGPASSWORD="SECRET" psql -c "select SECRET"', file_path: '/home/u/SECRET/a.ts' },
+        tool_output: 'SECRET',
+      }),
+    );
+    expect(JSON.stringify(filtered)).not.toContain('SECRET');
+    const { tool_input: toolInput, ...rest } = filtered as {
+      tool_input: { command: string; file_path: string };
+    } & Record<string, unknown>;
+    expect(rest).toEqual({
+      agent_kind: 'cursor',
+      hook_event_name: 'PreToolUse',
+      session_id: 'cursor-conv-1',
+      cwd: '/home/u/repos/meu-projeto/sub',
+      tool_name: 'Bash',
+    });
+    // The same reduction a Claude Code Bash call gets (bashCommandLabel.ts).
+    expect(Object.keys(toolInput).sort()).toEqual(['command', 'file_path']);
+    expect(toolInput.file_path).toBe('a.ts');
+    expect(toolInput.command.startsWith('psql')).toBe(true);
+    // The runtime reads it as one more session's tool start.
+    expect(claudeProvider.normalizeHookEvent(filtered)).toMatchObject({
+      sessionId: 'cursor-conv-1',
+      event: { kind: 'toolStart', toolName: 'Bash' },
+    });
+  });
+
+  it('the folder is the first workspace root when the event has no cwd; never the transcript', async () => {
+    const { filterHookPayload } = await load();
+    const filtered = filterHookPayload(
+      cursor({ hook_event_name: 'sessionStart', session_id: 'sess-9', composer_mode: 'agent' }),
+    );
+    expect(filtered).toEqual({
+      agent_kind: 'cursor',
+      hook_event_name: 'SessionStart',
+      // The conversation, which every later event names; not the start's own id.
+      session_id: 'cursor-conv-1',
+      cwd: '/home/u/repos/meu-projeto',
+    });
+  });
+
+  it.each([
+    ['beforeSubmitPrompt', { prompt: 'SECRET' }],
+    ['UserPromptSubmit', { prompt: 'SECRET' }],
+    ['afterAgentResponse', { text: 'SECRET' }],
+    ['afterAgentThought', { text: 'SECRET' }],
+    ['beforeReadFile', { file_path: '/x', content: 'SECRET' }],
+    ['afterFileEdit', { file_path: '/x', edits: [{ new_string: 'SECRET' }] }],
+    ['beforeShellExecution', { command: 'SECRET' }],
+    ['somethingNew', { whatever: 'SECRET' }],
+  ])('%s is dropped whole', async (event, extra) => {
+    const { filterHookPayload } = await load();
+    // No session id: the route ignores it (httpServer.ts).
+    expect(filterHookPayload(cursor({ hook_event_name: event, ...extra }))).toEqual({});
+  });
+
+  it('turn end, session end and helpers map to the events the runtime knows', async () => {
+    const { filterHookPayload, claudeProvider } = await load();
+    const kind = (event: string, extra: Record<string, unknown> = {}) =>
+      claudeProvider.normalizeHookEvent(filterHookPayload(cursor({ hook_event_name: event, ...extra })))
+        ?.event.kind;
+    expect(kind('stop', { status: 'completed' })).toBe('turnEnd');
+    expect(kind('sessionEnd', { reason: 'closed' })).toBe('sessionEnd');
+    expect(kind('postToolUse', { tool_name: 'Read', tool_output: 'SECRET' })).toBe('toolEnd');
+    expect(kind('postToolUseFailure', { error_message: 'SECRET' })).toBe('toolEnd');
+    expect(kind('subagentStop', { summary: 'SECRET' })).toBe('subagentEnd');
+    const helper = filterHookPayload(
+      cursor({ hook_event_name: 'subagentStart', subagent_type: 'explore', task: 'SECRET' }),
+    );
+    expect(JSON.stringify(helper)).not.toContain('SECRET');
+    expect(helper.agent_type).toBe('explore');
+  });
+
+  it('filtering twice (the script, then the route) changes nothing and stays Cursor', async () => {
+    const { filterHookPayload } = await load();
+    const once = filterHookPayload(cursor({ hook_event_name: 'stop' }));
+    expect(filterHookPayload(once)).toEqual(once);
+    expect(once.session_id).toBe('cursor-conv-1');
+  });
+
+  it('a Claude Code payload is untouched, and cannot pass itself off as Cursor', async () => {
+    const { filterHookPayload } = await load();
+    const claude = { hook_event_name: 'Stop', session_id: 's1', agent_kind: 'other', cwd: '/w' };
+    expect(filterHookPayload(claude)).toEqual({ hook_event_name: 'Stop', session_id: 's1', cwd: '/w' });
+  });
+
+  it('a Cursor event that names no conversation is not forwarded', async () => {
+    const { filterHookPayload } = await load();
+    expect(filterHookPayload({ cursor_version: '2', hook_event_name: 'stop' })).toEqual({});
+  });
+});
+
 describe('H4 (server side): the hook route filters too', () => {
   it('never hands the runtime an unfiltered payload, whatever script posted it', async () => {
     const { createHttpServer } = await import('../src/httpServer.js');

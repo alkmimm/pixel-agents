@@ -54,6 +54,7 @@ import { getHookProvider, processTranscriptLine } from './transcriptParser.js';
 import { cwdOfTranscript, projectNameFromCwd } from './projectName.js';
 import { isSessionOver } from './sessionLiveness.js';
 import { broadcastSignalsIfChanged, seedSignals } from './sessionSignals.js';
+import { CURSOR_SESSION_PREFIX } from './providers/hook/claude/hooks/cursorPayload.js';
 import type { AgentState } from './types.js';
 import { completeUtf8Length } from './utf8Boundary.js';
 
@@ -1140,6 +1141,8 @@ export function adoptExternalSessionFromHook(
       lastDataAt: Date.now(),
       directoryName,
     });
+    // pixel-agents-secure (local): a Cursor session says so over its character.
+    if (sessionId.startsWith(CURSOR_SESSION_PREFIX)) agent.agentName = 'Cursor';
     assignPaletteIfNeeded(agent, agents);
     agents.set(id, agent);
     persistAgents();

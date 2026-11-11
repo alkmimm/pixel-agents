@@ -462,10 +462,17 @@ export function useExtensionMessages(
         } else {
           const palette = msg.palette as number | undefined;
           const repeat = msg.repeat as number | undefined;
+          // pixel-agents-secure (local): a session with no transcript names
+          // its agent (a Cursor session: "Cursor").
+          const hooksOnlyName = msg.hooksOnly === true ? teammateName : undefined;
           // A resumed conversation asks for the seat its agent sat in.
           const seatId = msg.seatId as string | undefined;
           os.addAgent(id, palette, repeat, seatId, undefined, directoryName);
           noteDirectoryName(directoryName);
+          if (hooksOnlyName) {
+            const ch = os.characters.get(id);
+            if (ch) ch.agentName = hooksOnlyName;
+          }
           if (isHeadlessAgent(msg.isExternal as boolean | undefined)) {
             os.setHeadless(id, true);
           }
