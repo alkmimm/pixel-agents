@@ -1,4 +1,5 @@
 import { MAX_DELTA_TIME_SEC } from '../../constants.js';
+import { skipFrame } from './frameRate.js';
 
 /** @internal */
 export interface GameLoopCallbacks {
@@ -31,8 +32,7 @@ export function startGameLoop(canvas: HTMLCanvasElement, callbacks: GameLoopCall
     // characters sitting still; drawing it 60 times a second cost CPU for
     // nothing. Frames are skipped down to the wanted rate (dt still covers
     // the whole interval, so animations keep their speed).
-    const fps = callbacks.fps?.();
-    if (fps !== undefined && fps > 0 && lastTime !== 0 && time - lastTime < 1000 / fps - 2) {
+    if (skipFrame(time, lastTime, callbacks.fps?.())) {
       rafId = requestAnimationFrame(frame);
       return;
     }

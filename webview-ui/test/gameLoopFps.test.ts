@@ -1,45 +1,35 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { startGameLoop } from '../src/office/engine/gameLoop.js';
+import { skipFrame } from '../src/office/engine/frameRate.js';
 
-describe('gameLoop: frames skipped down to the wanted rate', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  function drive(fps: (() => number) | undefined, frames: number, frameMs: number) {
-    let pending: ((t: number) => void) | null = null;
-    vi.stubGlobal('requestAnimationFrame', (cb: (t: number) => void) => {
-      pending = cb;
-      return 1;
-    });
-    vi.stubGlobal('cancelAnimationFrame', () => {});
-    const canvas = { getContext: () => ({ imageSmoothingEnabled: false }) } as unknown as HTMLCanvasElement;
-    const dts: number[] = [];
-    let renders = 0;
-    const loop = startGameLoop(canvas, {
-      update: (dt) => dts.push(dt),
-      render: () => renders++,
-      ...(fps ? { fps } : {}),
-    });
-    for (let i = 1; i <= frames; i++) pending!(i * frameMs);
-    loop.stop();
-    return { renders, dts };
+/** Frames drawn in one second of 60 Hz animation frames at the wanted rate. */
+function drawnPerSecond(fps: number | undefined): { drawn: number; advanced: number } {
+  let last = 0;
+  let drawn = 0;
+  let advanced = 0;
+  for (let i = 1; i <= 60; i++) {
+    const t = (i * 1000) / 60;
+    if (skipFrame(t, last, fps)) continue;
+    if (last !== 0) advanced += t - last;
+    last = t;
+    drawn++;
   }
+  return { drawn, advanced };
+}
 
-  it('draws every animation frame when no rate is asked', () => {
-    expect(drive(undefined, 60, 1000 / 60).renders).toBe(60);
+describe('skipFrame: frames skipped down to the wanted rate', () => {
+  it('draws every frame when no rate is asked', () => {
+    expect(drawnPerSecond(undefined).drawn).toBe(60);
+    expect(drawnPerSecond(0).drawn).toBe(60);
   });
 
-  it('about 10 frames a second at rest, 30 when moving, with dt covering the gap', () => {
-    const idle = drive(() => 10, 60, 1000 / 60);
-    expect(idle.renders).toBeGreaterThanOrEqual(9);
-    expect(idle.renders).toBeLessThanOrEqual(11);
-    // Animations keep their speed: the time advanced adds up to the time elapsed.
-    const advanced = idle.dts.reduce((a, b) => a + b, 0);
-    expect(advanced).toBeGreaterThan(0.85);
-    const moving = drive(() => 30, 60, 1000 / 60);
-    expect(moving.renders).toBeGreaterThanOrEqual(29);
-    expect(moving.renders).toBeLessThanOrEqual(31);
+  it('about 10 a second at rest and 30 when moving, the elapsed time still covered', () => {
+    const idle = drawnPerSecond(10);
+    expect(idle.drawn).toBeGreaterThanOrEqual(9);
+    expect(idle.drawn).toBeLessThanOrEqual(11);
+    expect(idle.advanced).toBeGreaterThan(850);
+    const moving = drawnPerSecond(30);
+    expect(moving.drawn).toBeGreaterThanOrEqual(29);
+    expect(moving.drawn).toBeLessThanOrEqual(31);
   });
 });

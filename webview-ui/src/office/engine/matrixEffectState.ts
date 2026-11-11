@@ -52,14 +52,16 @@ export function advanceMatrixEffect(ch: Character, dt: number): MatrixEffectTick
   return 'spawned';
 }
 
-let reducedMotionQuery: MediaQueryList | null | undefined;
+let reducedMotionQuery: { matches: boolean } | null | undefined;
 
 /** The system's "reduce motion" preference (false where it cannot be read). */
 export function prefersReducedMotion(): boolean {
   if (reducedMotionQuery === undefined) {
+    const matchMedia = (globalThis as { matchMedia?: (query: string) => { matches: boolean } })
+      .matchMedia;
     reducedMotionQuery =
-      typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-        ? window.matchMedia('(prefers-reduced-motion: reduce)')
+      typeof matchMedia === 'function'
+        ? matchMedia.call(globalThis, '(prefers-reduced-motion: reduce)')
         : null;
   }
   return reducedMotionQuery?.matches ?? false;
