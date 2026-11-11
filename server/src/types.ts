@@ -1,9 +1,12 @@
 import type * as vscode from 'vscode';
 
 import type { BackgroundSpawns } from './backgroundSpawns.js';
+import type { SessionSignals } from './sessionSignals.js';
 
 export interface AgentState {
   id: number;
+  /** pixel-agents-secure (local): transcript metadata signals (sessionSignals.ts). */
+  signals?: SessionSignals;
   sessionId: string;
   /** Terminal reference — undefined for extension panel sessions */
   terminalRef?: vscode.Terminal;

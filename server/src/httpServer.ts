@@ -25,6 +25,7 @@ import {
 import { applyReportedContext } from './contextUsage.js';
 import { hookProviderById } from './providers/index.js';
 import { maskToolLabels } from './secretMask.js';
+import { filterSignalsForClient } from './sessionSignals.js';
 import { isRecord } from './serverConfig.js';
 import { registerTerminalRoutes } from './terminal/terminalRoutes.js';
 import type { TerminalSessions } from './terminal/terminalSessions.js';
@@ -347,9 +348,14 @@ function registerWebSocketRoute(
     const { store } = options;
     // pixel-agents-secure: a viewer (read-only) client gets tool labels masked
     // like its activity history and conversation (secretMask.ts).
+    // The model-made session title is prompt-derived: only a viewer with the
+    // conversation view on (H17) receives it (sessionSignals.ts).
+    const conversation = options.readOnly === true && options.conversation === true;
     const deliver = options.readOnly
-      ? (message: Record<string, unknown>) => safeSend(socket, maskToolLabels(message))
-      : (message: Record<string, unknown>) => safeSend(socket, message);
+      ? (message: Record<string, unknown>) =>
+          safeSend(socket, maskToolLabels(filterSignalsForClient(message, conversation)))
+      : (message: Record<string, unknown>) =>
+          safeSend(socket, filterSignalsForClient(message, false));
 
     // Pipe store events to WebSocket client
     const onAgentAdded = (id: number, agent: AgentState) => {

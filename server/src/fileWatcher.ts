@@ -52,6 +52,7 @@ import type { SubagentWatch } from './subagentWatch.js';
 import { cancelPermissionTimer, cancelWaitingTimer, clearAgentActivity } from './timerManager.js';
 import { getHookProvider, processTranscriptLine } from './transcriptParser.js';
 import { isSessionOver } from './sessionLiveness.js';
+import { broadcastSignalsIfChanged, seedSignals } from './sessionSignals.js';
 import type { AgentState } from './types.js';
 import { completeUtf8Length } from './utf8Boundary.js';
 
@@ -126,6 +127,12 @@ export function startFileWatching(
   // give an agent adopted or restored mid-session a context gauge without
   // replaying its whole transcript.
   seedContextUsage(agentId, agents, getHookProvider());
+  // pixel-agents-secure (local): mode and titles of a session joined mid-way.
+  const watched = agents.get(agentId);
+  if (watched) {
+    seedSignals(watched);
+    broadcastSignalsIfChanged(watched, agents);
+  }
 
   // Single polling approach: reliable on all platforms (macOS, Linux, WSL2, Windows).
   // Previously used triple-redundant fs.watch + fs.watchFile + setInterval, but

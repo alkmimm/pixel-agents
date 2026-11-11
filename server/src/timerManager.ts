@@ -1,5 +1,6 @@
 import type { AgentStateStore } from './agentStateStore.js';
 import { PERMISSION_TIMER_DELAY_MS } from './constants.js';
+import { permissionExemptFor } from './sessionSignals.js';
 import { hasPromotedBackgroundAgent } from './teamUtils.js';
 import type { AgentState } from './types.js';
 
@@ -114,6 +115,11 @@ export function startPermissionTimer(
   permissionExemptTools: ReadonlySet<string>,
 ): void {
   cancelPermissionTimer(agentId, permissionTimers);
+  // pixel-agents-secure (local): a session in a mode that does not ask never
+  // gets a timed "needs approval" (a long Bash raised it), and under
+  // acceptEdits edits do not count (sessionSignals.ts).
+  const exempt = permissionExemptFor(agents.get(agentId), permissionExemptTools);
+  if (exempt === null) return;
   const timer = setTimeout(() => {
     permissionTimers.delete(agentId);
     const agent = agents.get(agentId);
@@ -123,7 +129,7 @@ export function startPermissionTimer(
     let hasNonExempt = false;
     for (const toolId of agent.activeToolIds) {
       const toolName = agent.activeToolNames.get(toolId);
-      if (!permissionExemptTools.has(toolName || '')) {
+      if (!exempt.has(toolName || '')) {
         hasNonExempt = true;
         break;
       }
@@ -133,7 +139,7 @@ export function startPermissionTimer(
     const stuckSubagentParentToolIds: string[] = [];
     for (const [parentToolId, subToolNames] of agent.activeSubagentToolNames) {
       for (const [, toolName] of subToolNames) {
-        if (!permissionExemptTools.has(toolName)) {
+        if (!exempt.has(toolName)) {
           stuckSubagentParentToolIds.push(parentToolId);
           hasNonExempt = true;
           break;

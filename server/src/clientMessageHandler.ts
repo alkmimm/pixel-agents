@@ -47,6 +47,7 @@ import { recentCharactersMessage, recordCharacterUse } from './recentCharacters.
 import { launchStandaloneAgent } from './terminal/standaloneAgentLauncher.js';
 import type { TerminalSessions } from './terminal/terminalSessions.js';
 import { applyUsageBridgeChoice, usageSnapshotMessages } from './usageLimits.js';
+import { signalsMessage } from './sessionSignals.js';
 import { answerConversationRequest } from './viewerConversation.js';
 
 type WsSend = (message: Record<string, unknown>) => void;
@@ -765,6 +766,10 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   // exist once the layout flush creates them. Without this a reconnecting
   // client shows bare characters until each agent takes another turn.
   resendAgentActivity(send, store);
+  // pixel-agents-secure (local): each agent's current signals (sessionSignals.ts).
+  for (const agent of store.values()) {
+    if (agent.signals?.sent !== undefined) send(signalsMessage(agent));
+  }
 
   // 8b. pixel-agents-secure (local): the viewer's recent activity per agent,
   // after the agents exist. Only labels the office already showed.

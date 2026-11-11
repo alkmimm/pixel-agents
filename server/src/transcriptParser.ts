@@ -5,6 +5,7 @@ import type { AgentStateStore } from './agentStateStore.js';
 import { launchSpawn, readCompletionNotices } from './backgroundSpawns.js';
 import { TEXT_IDLE_DELAY_MS, TOOL_DONE_DELAY_MS } from './constants.js';
 import { updateContextUsage } from './contextUsage.js';
+import { broadcastSignalsIfChanged, observeRecord } from './sessionSignals.js';
 import { hasInlineTeammates, hasPromotedBackgroundAgent } from './teamUtils.js';
 import {
   cancelPermissionTimer,
@@ -129,6 +130,9 @@ export function processTranscriptLine(
   agent.linesProcessed++;
   try {
     const record = JSON.parse(line);
+    // pixel-agents-secure (local): metadata signals (sessionSignals.ts).
+    observeRecord(agent, record);
+    broadcastSignalsIfChanged(agent, agents);
     // Background agents' completion notices, as the provider reads them.
     const spawnNotices = hookProvider?.team?.readSpawnNotices?.(record) ?? null;
 

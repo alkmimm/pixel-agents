@@ -626,6 +626,32 @@ describe('H7 (token before body): a request without the token never has its body
   });
 });
 
+describe('H17 (session titles): the model-made title is prompt-derived', () => {
+  it('reaches only a viewer with the conversation view on; never the extension', async () => {
+    const { filterSignalsForClient } = await import('../src/sessionSignals.js');
+    const message = { type: 'agentSignals', id: 1, title: 'mine', aiTitle: 'from the prompt' };
+    expect(filterSignalsForClient(message, true)).toEqual(message);
+    expect(filterSignalsForClient(message, false)).toEqual({ type: 'agentSignals', id: 1, title: 'mine' });
+    expect(filterSignalsForClient({ type: 'agentStatus', aiTitle: 'x' }, false)).toEqual({
+      type: 'agentStatus',
+      aiTitle: 'x',
+    });
+    const http = fs.readFileSync(path.join(REPO_ROOT, 'server/src/httpServer.ts'), 'utf-8');
+    expect(http).toContain(
+      'safeSend(socket, maskToolLabels(filterSignalsForClient(message, conversation)))',
+    );
+    expect(http).toContain('safeSend(socket, filterSignalsForClient(message, false))');
+    expect(http).toContain(
+      'const conversation = options.readOnly === true && options.conversation === true;',
+    );
+    const vscode = fs.readFileSync(
+      path.join(REPO_ROOT, 'adapters/vscode/PixelAgentsViewProvider.ts'),
+      'utf-8',
+    );
+    expect(vscode).toContain('this.sendOrBuffer(filterSignalsForClient(message, false));');
+  });
+});
+
 // The BUNDLED hook script, as Claude Code runs it. Needs dist/ (the governance
 // build runs this suite after building, and fails on any skipped test).
 const BUNDLED_HOOK = path.join(REPO_ROOT, 'dist/hooks/claude-hook.js');

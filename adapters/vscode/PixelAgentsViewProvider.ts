@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import type { StateAdapter } from '../../core/src/adapter.js';
 import { rosterPick } from '../../core/src/paletteUtils.js';
 import type { HookProvider } from '../../core/src/provider.js';
+import { filterSignalsForClient } from '../../server/src/sessionSignals.js';
 import { buildAgentDiagnostics } from '../../server/src/agentDiagnostics.js';
 import { agentCreatedMessage } from '../../server/src/agentMessages.js';
 import { AgentRuntime } from '../../server/src/agentRuntime.js';
@@ -165,7 +166,9 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
       this.sendOrBuffer({ type: 'agentClosed', id });
     });
     this.store.on('broadcast', (message) => {
-      this.sendOrBuffer(message);
+      // pixel-agents-secure (local): never the model-made session title here
+      // (prompt-derived; only the viewer's opt-in conversation view shows it).
+      this.sendOrBuffer(filterSignalsForClient(message, false));
     });
 
     setTerminalAdapter(new VscodeTerminalAdapter());
