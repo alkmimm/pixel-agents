@@ -153,9 +153,19 @@ export function ViewerBar({
   }, []);
 
   return (
-    <div className="absolute left-10 bottom-10 z-20 flex flex-col items-start gap-4">
+    // As tall as the window allows and no taller: in a short window the options
+    // scroll inside their panel instead of running off the top, and in a
+    // narrow one the buttons wrap. The box itself lets clicks through.
+    <div
+      className="absolute left-10 top-10 bottom-10 z-20 flex flex-col items-start justify-end gap-4 pointer-events-none"
+      style={{ maxWidth: 'calc(100% - 20px)' }}
+    >
       {optionsOpen && (
-        <div className="pixel-panel p-8 flex flex-col gap-4" data-testid="viewer-options">
+        <div
+          className="pixel-panel p-8 flex flex-col gap-4 min-h-0 max-w-full overflow-y-auto pointer-events-auto"
+          data-testid="viewer-options"
+          onWheel={(e) => e.stopPropagation()}
+        >
           {OPTIONS.map(({ key, label }) => (
             <Checkbox
               key={key}
@@ -165,7 +175,7 @@ export function ViewerBar({
             />
           ))}
           <span className="text-2xs text-text-muted mt-4">Rótulos aparecem</span>
-          <div className="flex gap-4" data-testid="viewer-label-mode">
+          <div className="flex flex-wrap gap-4 shrink-0" data-testid="viewer-label-mode">
             {LABEL_MODES.map(({ mode, label, title }) => (
               <Button
                 key={mode}
@@ -186,7 +196,7 @@ export function ViewerBar({
           ))}
         </div>
       )}
-      <div className="flex gap-4">
+      <div className="flex flex-wrap gap-4 shrink-0 pointer-events-auto">
         <Button
           size="sm"
           variant={prefs.agentsPanel ? 'active' : 'default'}
