@@ -108,7 +108,8 @@ const FEATURE_OPTIONS: Array<{ key: ViewerToggle; label: string; title: string }
 /** Not offered inside the VS Code panel (see `embedded`). */
 const VIEWER_ONLY: ViewerToggle[] = ['rooms', 'compactOffice'];
 /** Where the bar sits inside the VS Code panel: over the panel's toolbar. */
-const EMBEDDED_BOTTOM_PX = 66;
+// (Seen on screen at 66: the bar's lower edge sat under the toolbar's top.)
+const EMBEDDED_BOTTOM_PX = 78;
 
 /** Saved like the others, but switched by a button of the bar, not a checkbox. */
 const HIDDEN_TOGGLES: ViewerToggle[] = ['agentsPanel'];
@@ -264,7 +265,8 @@ export function ViewerBar({
         >
           Enquadrar
         </Button>
-        {canPictureInPicture() && !floating && (
+        {/* Not in the VS Code panel: a webview cannot float its own window. */}
+        {!embedded && canPictureInPicture() && !floating && (
           <Button
             size="sm"
             className="border-border! shadow-pixel"
