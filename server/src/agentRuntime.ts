@@ -42,6 +42,7 @@ import { HookEventHandler } from './hookEventHandler.js';
 import { assignPaletteIfNeeded } from './paletteAssigner.js';
 import { PathSet, pathsMatch } from './pathKey.js';
 import { SessionRouter } from './sessionRouter.js';
+import { isSessionOver } from './sessionLiveness.js';
 import { SubagentWatch } from './subagentWatch.js';
 import { cancelPermissionTimer, cancelWaitingTimer } from './timerManager.js';
 import {
@@ -539,6 +540,9 @@ export class AgentRuntime {
       } catch {
         continue;
       }
+      // pixel-agents-secure (local): a session that ended while no server ran
+      // is not brought back (sessionLiveness.ts).
+      if (!this.store.has(p.id) && isSessionOver(p.jsonlFile)) continue;
       if (this.store.has(p.id)) {
         this.knownJsonlFiles.add(p.jsonlFile);
         if (p.id > maxId) maxId = p.id;

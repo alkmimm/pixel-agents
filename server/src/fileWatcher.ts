@@ -51,6 +51,7 @@ import { pathsMatch } from './pathKey.js';
 import type { SubagentWatch } from './subagentWatch.js';
 import { cancelPermissionTimer, cancelWaitingTimer, clearAgentActivity } from './timerManager.js';
 import { getHookProvider, processTranscriptLine } from './transcriptParser.js';
+import { isSessionOver } from './sessionLiveness.js';
 import type { AgentState } from './types.js';
 import { completeUtf8Length } from './utf8Boundary.js';
 
@@ -155,10 +156,13 @@ export function startFileWatching(
     ) {
       const deps = clearDetectionDeps;
       try {
+        // pixel-agents-secure (local): the agent's own project dir. In a
+        // multi-root workspace deps.projectDir is only the first root's.
+        const projectDir = agent.projectDir || deps.projectDir;
         const dirFiles = fs
-          .readdirSync(deps.projectDir)
+          .readdirSync(projectDir)
           .filter((f) => f.endsWith('.jsonl'))
-          .map((f) => path.join(deps.projectDir, f));
+          .map((f) => path.join(projectDir, f));
         // Find the first untracked, non-dismissed file NOT already in knownJsonlFiles.
         // knownJsonlFiles blocks seeded files (startup) and adopted files.
         // dismissedJsonlFiles blocks old files from previous /clears.
@@ -1402,6 +1406,8 @@ export function scanExternalDir(
     } catch {
       continue;
     }
+    // pixel-agents-secure (local): a session that already ended is not adopted.
+    if (isSessionOver(file)) continue;
 
     // Content check with two-tick delay for /clear files:
     // First tick: skip /clear files (give per-agent 3s to claim for internal /clear).
@@ -1409,8 +1415,12 @@ export function scanExternalDir(
     try {
       const buf = Buffer.alloc(8192);
       const fd = fs.openSync(file, 'r');
-      const bytesRead = fs.readSync(fd, buf, 0, 8192, 0);
-      fs.closeSync(fd);
+      let bytesRead: number;
+      try {
+        bytesRead = fs.readSync(fd, buf, 0, 8192, 0);
+      } finally {
+        fs.closeSync(fd);
+      }
       if (buf.toString('utf-8', 0, bytesRead).includes('/clear</command-name>')) {
         if (!dismissalTracker!.hasPendingClear(file)) {
           dismissalTracker!.registerPendingClear(file);
@@ -1569,6 +1579,7 @@ function scanGlobalProjectDirs(
       } catch {
         continue;
       }
+      if (isSessionOver(file)) continue;
 
       adoptGlobal(file, dirPath);
     }
@@ -1641,6 +1652,7 @@ export async function findActiveSessionsInRoots(
         } catch {
           continue;
         }
+        if (isSessionOver(file)) continue;
         found.push({ file, dirPath });
       }
     }
@@ -1683,23 +1695,29 @@ export function startStaleExternalAgentCheck(
   hooksEnabledRef?: { current: boolean },
 ): ReturnType<typeof setInterval> {
   return setInterval(() => {
-    // When hooks are active, SessionEnd handles agent cleanup.
-    if (hooksEnabledRef?.current) return;
     const toRemove: number[] = [];
 
     for (const [id, agent] of agents) {
       if (!agent.isExternal) continue;
 
-      // Only despawn if the JSONL file has been deleted from disk.
       // Inactive external agents stay alive so they can resume when
       // the session continues (e.g., claude --resume).
       try {
         fs.statSync(agent.jsonlFile);
-        // File still exists — keep the agent alive regardless of mtime
-      } catch {
-        // File deleted — remove agent
-        toRemove.push(id);
+      } catch (e) {
+        // pixel-agents-secure (local): only a file that is GONE removes the
+        // agent. Any other error (a transient one on the /mnt/c mount of an
+        // extra root) used to remove it too. When hooks are active, SessionEnd
+        // handles cleanup, and a hook-detected agent may not have its file yet.
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT' && !hooksEnabledRef?.current) {
+          toRemove.push(id);
+        }
+        continue;
       }
+      // pixel-agents-secure (local): an ended session (closed transcript, or
+      // its process gone) leaves, hooks or not. Sessions from an extra root
+      // never send SessionEnd to this server (sessionLiveness.ts).
+      if (isSessionOver(agent.jsonlFile)) toRemove.push(id);
     }
 
     for (const id of toRemove) {
