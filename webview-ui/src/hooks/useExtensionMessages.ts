@@ -177,7 +177,13 @@ function omitKey<T>(record: Record<number, T>, id: number): Record<number, T> {
   return next;
 }
 
+/** pixel-agents-secure (local): set by `officeAccess`. A read-only office has
+ *  nothing to save (the server refuses it), and with one room per project its
+ *  seats are not the layout's. */
+let officeIsReadOnly = false;
+
 function saveAgentSeats(os: OfficeState): void {
+  if (officeIsReadOnly) return;
   transport.send({ type: 'saveAgentSeats', seats: os.getPersistableSeats() });
 }
 
@@ -362,7 +368,8 @@ export function useExtensionMessages(
       }
 
       if (msg.type === 'officeAccess') {
-        setOfficeReadOnly(msg.readOnly === true);
+        officeIsReadOnly = msg.readOnly === true;
+        setOfficeReadOnly(officeIsReadOnly);
         return;
       }
 

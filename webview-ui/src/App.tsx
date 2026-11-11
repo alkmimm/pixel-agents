@@ -84,6 +84,9 @@ const editorState = new EditorState();
 // unbounded logs in a real user's session.
 if (isE2E) installTestHooks(officeStateRef);
 
+/** pixel-agents-secure (local): how long a "waits on you" answer is reused. */
+const ATTENTION_MEMO_MS = 500;
+
 function getOfficeState(): OfficeState {
   if (!officeStateRef.current) {
     officeStateRef.current = new OfficeState();
@@ -302,11 +305,27 @@ function App() {
   }, [officeReadOnly, viewerPrefs.sound]);
 
   // pixel-agents-secure (local): one room per project, and its name over its door.
+  const zoomRef = useRef(editor.zoom);
+  zoomRef.current = editor.zoom;
+  const { panRef: officePanRef } = editor;
+  // The map is drawn centred, so one that grows to the right and down would
+  // push what is on screen up and to the left: pan by half the growth.
+  const keepViewOnResize = useCallback(
+    (dCols: number, dRows: number) => {
+      const half = (TILE_SIZE * zoomRef.current) / 2;
+      officePanRef.current = {
+        x: officePanRef.current.x + dCols * half,
+        y: officePanRef.current.y + dRows * half,
+      };
+    },
+    [officePanRef],
+  );
   const projectRooms = useProjectRooms(
     officeReadOnly && viewerPrefs.rooms,
     getOfficeState,
     agents,
     layoutReady,
+    keepViewOnResize,
   );
   const roomSigns = useMemo(
     () =>
@@ -316,6 +335,7 @@ function App() {
         // Centred on the room's top wall, left of the door.
         x: (room.col + 2.5) * TILE_SIZE,
         y: (room.row + 0.5) * TILE_SIZE,
+        width: 3 * TILE_SIZE,
         color: room.color,
       })),
     [projectRooms],
@@ -569,12 +589,20 @@ function App() {
   );
   // pixel-agents-secure (local): with labels "quando importa", whose label
   // stays up by itself: the agents waiting on you.
+  // Asked on every drawn frame, answered from a short memory: reading an
+  // agent's state walks its tools and its history.
+  const attentionMemo = useRef(new Map<number, { at: number; value?: { text?: string } }>());
+  useEffect(() => attentionMemo.current.clear(), [agentTools, agents]);
   const labelAttention = useCallback(
     (id: number) => {
+      const now = Date.now();
+      const known = attentionMemo.current.get(id);
+      if (known && now - known.at < ATTENTION_MEMO_MS) return known.value;
       const tone = agentStatusView(getOfficeState(), id, agentTools).tone;
-      if (tone === 'permission') return {};
-      if (tone === 'input') return { text: 'Esperando você' };
-      return undefined;
+      const value =
+        tone === 'permission' ? {} : tone === 'input' ? { text: 'Esperando você' } : undefined;
+      attentionMemo.current.set(id, { at: now, value });
+      return value;
     },
     [agentTools],
   );

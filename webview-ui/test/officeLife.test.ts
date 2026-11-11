@@ -8,6 +8,7 @@ import {
   coffeeSpots,
   followTurn,
   isSleepy,
+  MAX_LOOK_MS,
   SLEEP_AFTER_MS,
 } from '../src/viewer/officeLife.js';
 
@@ -37,16 +38,18 @@ describe('office life', () => {
 
   it('only an agent with nothing to do for long dozes off', () => {
     expect(isSleepy('done', NOW - SLEEP_AFTER_MS, NOW)).toBe(true);
-    expect(isSleepy('input', NOW - SLEEP_AFTER_MS, NOW)).toBe(true);
+    // Waiting on you is not sleeping.
+    expect(isSleepy('input', NOW - SLEEP_AFTER_MS, NOW)).toBe(false);
     expect(isSleepy('done', NOW - SLEEP_AFTER_MS + 1, NOW)).toBe(false);
     expect(isSleepy('active', NOW - SLEEP_AFTER_MS, NOW)).toBe(false);
     expect(isSleepy('idle', undefined, NOW)).toBe(false);
   });
 
-  it('the coffee chance follows the time between looks', () => {
+  it('the coffee chance follows the time between looks, up to one look', () => {
     expect(coffeeChance(0)).toBe(0);
-    expect(coffeeChance(COFFEE_EVERY_MS / 2)).toBeCloseTo(0.5);
-    expect(coffeeChance(COFFEE_EVERY_MS * 3)).toBe(1);
+    expect(coffeeChance(1_000)).toBeCloseTo(1_000 / COFFEE_EVERY_MS);
+    // A late look is one look: not everyone leaves for coffee at once.
+    expect(coffeeChance(COFFEE_EVERY_MS * 3)).toBeCloseTo(MAX_LOOK_MS / COFFEE_EVERY_MS);
   });
 
   it('one has a coffee on the walkable tiles closest to it', () => {

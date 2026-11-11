@@ -65,7 +65,15 @@ interface ToolOverlayProps {
   emote?: (id: number) => string | undefined;
   /** pixel-agents-secure (local): names written on the office itself (each
    *  project room's, viewer/projectRooms.ts), at world-pixel positions. */
-  signs?: ReadonlyArray<{ key: string; text: string; x: number; y: number; color: string }>;
+  signs?: ReadonlyArray<{
+    key: string;
+    text: string;
+    x: number;
+    y: number;
+    /** Room for the name, in world pixels. */
+    width: number;
+    color: string;
+  }>;
 }
 
 /** Derive a short human-readable activity string from tools/status */
@@ -139,9 +147,9 @@ export function ToolOverlay({
   signs,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0);
-  const flashRef = useRef<ActivityFlash | null>(null);
-  flashRef.current ??= new ActivityFlash();
-  const flash = flashRef.current;
+  // The memory of each agent's activity, kept only while labels are 'smart'
+  // (a new one on each switch: what changed meanwhile is not news).
+  const flashRef = useRef<{ flash: ActivityFlash; agents: number[] } | null>(null);
   useEffect(() => {
     let rafId = 0;
     const tick = () => {
@@ -178,17 +186,30 @@ export function ToolOverlay({
   const mode: LabelMode = labelMode ?? (alwaysShowOverlay ? 'always' : 'hover');
   const showAll = mode === 'always';
   const now = Date.now();
-  flash.keep(agents);
+  if (mode !== 'smart') {
+    flashRef.current = null;
+  } else if (!flashRef.current) {
+    flashRef.current = { flash: new ActivityFlash(), agents };
+  } else if (flashRef.current.agents !== agents) {
+    flashRef.current.flash.keep(agents);
+    flashRef.current.agents = agents;
+  }
+  const flash = flashRef.current?.flash;
 
   return (
     <>
       {signs?.map((sign) => (
         <div
           key={sign.key}
-          className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none whitespace-nowrap leading-none"
+          className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none whitespace-nowrap leading-none overflow-hidden text-ellipsis text-center"
+          title={sign.text}
           style={{
             left: project.toScreenX(sign.x),
             top: project.toScreenY(sign.y),
+            // No wider than its stretch of wall, at any zoom.
+            maxWidth:
+              project.toScreenX(sign.x + sign.width / 2) -
+              project.toScreenX(sign.x - sign.width / 2),
             color: sign.color,
             fontSize: '18px',
             textShadow: '1px 1px 0 #000',
@@ -272,17 +293,20 @@ export function ToolOverlay({
 
         // pixel-agents-secure (local): in 'smart' mode a label also shows by
         // itself while its agent waits on the user, or just changed activity.
-        const ownText = isSub
-          ? ''
-          : getActivityText(
-              id,
-              agentTools,
-              ch.isActive,
-              ch.bubbleType,
-              ch.waitingAwaitingInput ?? false,
-            );
-        const attention = mode === 'smart' && !isSub ? labelAttention?.(id) : undefined;
-        const flashing = mode === 'smart' && !isSub && flash.note(id, ownText, now);
+        // The text is worked out only where it is needed: here in 'smart'
+        // mode, and further down for a label that does show.
+        const ownTextOf = () =>
+          getActivityText(
+            id,
+            agentTools,
+            ch.isActive,
+            ch.bubbleType,
+            ch.waitingAwaitingInput ?? false,
+          );
+        const smartText = flash !== undefined && !isSub ? ownTextOf() : undefined;
+        const attention = smartText !== undefined ? labelAttention?.(id) : undefined;
+        const flashing =
+          smartText !== undefined && flash !== undefined && flash.note(id, smartText, now);
 
         // Only show the label for hovered or selected agents (unless
         // always-show is on) — the bubble renders regardless.
@@ -327,7 +351,11 @@ export function ToolOverlay({
         const hasWaitingBubble = ch.bubbleType === 'waiting';
         const subHasPermission = isSub && ch.bubbleType === 'permission';
         let activityText: string;
-        if (hasWaitingBubble && ch.waitingAwaitingInput) {
+        if (attention?.text) {
+          // pixel-agents-secure (local): the same words for as long as it
+          // waits, not one while the bubble is up and another after it fades.
+          activityText = attention.text;
+        } else if (hasWaitingBubble && ch.waitingAwaitingInput) {
           // Idle, waiting on the user -> dedicated label. A finished turn (Stop)
           // shows only the checkmark and falls through to the normal idle text.
           activityText = WAITING_INPUT_ACTIVITY_TEXT;
@@ -344,7 +372,7 @@ export function ToolOverlay({
             activityText = activeRow?.status ?? (sub?.label || 'Subtask');
           }
         } else {
-          activityText = attention?.text ?? ownText;
+          activityText = smartText ?? ownTextOf();
         }
 
         // Determine dot color

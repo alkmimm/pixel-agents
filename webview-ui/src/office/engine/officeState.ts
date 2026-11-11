@@ -321,9 +321,9 @@ export class OfficeState {
    *  no rooms, anywhere. */
   private wanderPool(ch: Character): Tile[] {
     if (this.roomTiles.size === 0) return this.walkableTiles;
-    const labels = ch.directoryName ? this.roomAreas[ch.directoryName] : undefined;
-    const home = labels?.map((l) => this.roomTiles.get(l)).find((t) => t && t.length > 0);
-    if (home && Math.random() < ROOM_WANDER_HOME_CHANCE) return home;
+    const label = ch.directoryName ? this.roomAreas[ch.directoryName]?.[0] : undefined;
+    const home = label !== undefined ? this.roomTiles.get(label) : undefined;
+    if (home && home.length > 0 && Math.random() < ROOM_WANDER_HOME_CHANCE) return home;
     return this.commonTiles.length > 0 ? this.commonTiles : this.walkableTiles;
   }
 
@@ -377,10 +377,10 @@ export class OfficeState {
 
     for (const ch of this.characters.values()) {
       const was = before.get(ch.id);
-      // A character whose seat went away was just given another: leave it there.
-      if (!was || was.seatId !== ch.seatId) {
-        ch.path = [];
-        ch.moveProgress = 0;
+      if (!was) continue;
+      if (was.seatId !== ch.seatId && ch.seatId) {
+        // Its seat went away and it was just given another: sitting in it.
+        this.placeInSeat(ch, ch.seatId);
         continue;
       }
       ch.x = was.x;
@@ -531,10 +531,18 @@ export class OfficeState {
     }
     if (freeSeats.length === 0) return null;
 
-    // pixel-agents-secure (local): a project's own room first.
-    const areaLabels = directoryName
-      ? (this.roomAreas[directoryName] ?? this.areaMappings[directoryName])
-      : undefined;
+    // pixel-agents-secure (local): a project's own room first, when it has
+    // a free seat; then the Areas mapped to it, as always.
+    const roomLabels = directoryName ? this.roomAreas[directoryName] : undefined;
+    if (roomLabels && roomLabels.length > 0) {
+      const inRoom = freeSeats.filter((uid) => {
+        const label = this.seatZone(uid);
+        return label !== null && roomLabels.includes(label);
+      });
+      const pick = this.pickFromSeats(inRoom);
+      if (pick) return pick;
+    }
+    const areaLabels = directoryName ? this.areaMappings[directoryName] : undefined;
 
     // Stage 1 — in-area seats for the Directory's mapped Area labels.
     if (areaLabels && areaLabels.length > 0) {
@@ -1388,12 +1396,12 @@ export class OfficeState {
     return true;
   }
 
-  /** Keep an idle, standing agent where it is for `sec` seconds; with
+  /** Keep an idle, standing agent where it is for `sec` seconds, no more; with
    *  `thenHome`, its next walk is back to its seat. */
   holdStill(id: number, sec: number, thenHome: boolean): void {
     const ch = this.characters.get(id);
     if (!this.atLeisure(ch) || ch.state !== CharacterState.IDLE) return;
-    ch.wanderTimer = Math.max(ch.wanderTimer, sec);
+    ch.wanderTimer = sec;
     if (thenHome) ch.wanderCount = ch.wanderLimit;
   }
 
@@ -1409,7 +1417,27 @@ export class OfficeState {
   /** Send a pet that is doing nothing to an agent. The pet's id, or null. */
   sendPetTo(agentId: number, maxSec: number): string | null {
     if (!this.characters.has(agentId)) return null;
-    const pet = this.pets.find((p) => p.state === PetState.IDLE);
+    const target = this.characters.get(agentId);
+    // Only a pet that can walk up to the agent: one that cannot would spend
+    // the whole visit trying.
+    const pet = this.pets.find(
+      (p) =>
+        p.state === PetState.IDLE &&
+        target !== undefined &&
+        [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ].some(([dc, dr]) => {
+          const col = target.tileCol + dc;
+          const row = target.tileRow + dr;
+          return (
+            (p.tileCol === col && p.tileRow === row) ||
+            findPath(p.tileCol, p.tileRow, col, row, this.tileMap, this.blockedTiles).length > 0
+          );
+        }),
+    );
     if (!pet) return null;
     pet.state = PetState.FOLLOW;
     pet.followTargetId = agentId;

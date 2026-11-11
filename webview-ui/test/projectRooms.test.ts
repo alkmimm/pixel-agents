@@ -109,6 +109,20 @@ describe('project rooms: the plan', () => {
     expect(new Set(plan.map((r) => r.slot)).size).toBe(MAX_ROOMS);
   });
 
+  it('with no slot left, the room empty the longest gives its up', () => {
+    const full: RoomState[] = [];
+    for (let i = 0; i < MAX_ROOMS; i++) full.push(room(`p${i}`, i));
+    full[2] = { ...full[2], emptySince: NOW - 2_000 };
+    full[5] = { ...full[5], emptySince: NOW - 1_000 };
+    const live = new Map<string, number>([['novo', 1]]);
+    for (const r of full) if (r.emptySince === null) live.set(r.project, 1);
+    const plan = planRooms(full, live, NOW);
+    expect(plan).toHaveLength(MAX_ROOMS);
+    expect(plan.find((r) => r.project === 'novo')?.slot).toBe(2);
+    expect(plan.some((r) => r.project === 'p2')).toBe(false);
+    expect(plan.some((r) => r.project === 'p5')).toBe(true);
+  });
+
   it('only what is drawn makes two plans differ', () => {
     expect(sameRooms([room('a', 0)], [{ ...room('a', 0), emptySince: NOW }])).toBe(true);
     expect(sameRooms([room('a', 0)], [room('a', 0, 2)])).toBe(false);

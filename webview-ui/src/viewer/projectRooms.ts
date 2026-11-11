@@ -85,8 +85,8 @@ function stationRowsFor(agents: number): number {
 /**
  * The rooms for the agents in the office now: `counts` is how many agents
  * each project has. Rooms keep their slot; a room only grows; an empty room is
- * dropped ROOM_LINGER_MS after it emptied; a new project takes the lowest
- * free slot, if there is one.
+ * dropped ROOM_LINGER_MS after it emptied (sooner if a new project needs its
+ * slot); a new project takes the lowest free slot, if there is one.
  */
 export function planRooms(
   prev: readonly RoomState[],
@@ -115,7 +115,15 @@ export function planRooms(
   for (const [project, count] of arrivals) {
     let slot = 0;
     while (taken.has(slot)) slot++;
-    if (slot >= MAX_ROOMS) break;
+    if (slot >= MAX_ROOMS) {
+      // No slot left: the room that has been empty the longest gives its up.
+      const empty = next
+        .filter((r) => r.emptySince !== null)
+        .sort((a, b) => (a.emptySince ?? 0) - (b.emptySince ?? 0))[0];
+      if (!empty) break;
+      next.splice(next.indexOf(empty), 1);
+      slot = empty.slot;
+    }
     taken.add(slot);
     next.push({ project, slot, stationRows: stationRowsFor(count), emptySince: null });
   }

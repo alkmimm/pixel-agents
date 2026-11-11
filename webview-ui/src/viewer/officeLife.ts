@@ -3,7 +3,7 @@
  * characters do that say something true about their agents:
  *
  *   ☕   an idle agent walks to the coffee, stays a moment and goes back
- *   Zzz  an agent with nothing to do for a long time dozes in its chair
+ *   Zzz  an agent that finished long ago dozes in its chair
  *   🎉   an agent that just finished a long turn celebrates
  *   …    two idle agents that meet stop for a word
  *   ♥    a pet goes to whoever has waited on you the longest
@@ -28,6 +28,8 @@ export const COFFEE_SIP_SEC = 8;
 export const CHAT_SEC = 4;
 /** How close (in steps) two idle agents stand to start talking. */
 export const CHAT_REACH_TILES = 2;
+/** The longest time one look stands for. */
+export const MAX_LOOK_MS = 5_000;
 /** How far from the coffee (in steps) still counts as "at the coffee". */
 const COFFEE_REACH_TILES = 3;
 
@@ -69,14 +71,18 @@ export function followTurn(
   return { memo: { working: false, since: now }, celebrate };
 }
 
-/** Whether an agent has had nothing to do for long enough to doze off. */
+/** Whether an agent has had nothing to do for long enough to doze off. One
+ *  that waits on you is not asleep: it is waiting. */
 export function isSleepy(tone: StatusTone, since: number | undefined, now: number): boolean {
-  return !isWorking(tone) && since !== undefined && now - since >= SLEEP_AFTER_MS;
+  const nothingToDo = tone === 'done' || tone === 'idle';
+  return nothingToDo && since !== undefined && now - since >= SLEEP_AFTER_MS;
 }
 
 /** The chance, in one look `elapsedMs` after the last, of going for a coffee. */
 export function coffeeChance(elapsedMs: number): number {
-  return Math.min(1, elapsedMs / COFFEE_EVERY_MS);
+  // A look that comes late (a hidden tab, a sleeping machine) counts as one
+  // look, or everyone would leave for coffee together.
+  return Math.max(0, Math.min(elapsedMs, MAX_LOOK_MS)) / COFFEE_EVERY_MS;
 }
 
 /**
