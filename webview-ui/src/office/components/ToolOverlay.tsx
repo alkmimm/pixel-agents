@@ -28,12 +28,16 @@ import { BUBBLE_PERMISSION_SPRITE, BUBBLE_WAITING_SPRITE } from '../sprites/spri
 import type { ToolActivity } from '../types.js';
 import { CharacterState } from '../types.js';
 import { canvasDpr } from '../../viewScale.js';
+import { ActivityFlash, type LabelMode } from '../../viewer/labelMode.js';
 
 // Both turn-end states show the green checkmark bubble. A finished turn (Stop)
 // shows ONLY the checkmark (the label falls through to its normal idle text);
 // going idle waiting on the user (Notification(idle_prompt)) additionally
 // surfaces this label. Driven by Character.waitingAwaitingInput.
 const WAITING_INPUT_ACTIVITY_TEXT = 'Waiting for input';
+
+/** pixel-agents-secure (local): height of the mood chip over a head, CSS px. */
+const EMOTE_HEIGHT_PX = 20;
 
 interface ToolOverlayProps {
   officeState: OfficeState;
@@ -50,6 +54,15 @@ interface ToolOverlayProps {
   /** pixel-agents-secure (local): extra lines for an agent's label (the
    *  viewer's opt-in session title and problem signal). Unset: none. */
   labelExtra?: (id: number) => { title?: string; badge?: { text: string; color: string } } | undefined;
+  /** pixel-agents-secure (local): 'smart' shows a label by itself only when
+   *  it matters (viewer/labelMode.ts). Unset: follows alwaysShowOverlay. */
+  labelMode?: LabelMode;
+  /** With 'smart': the agents waiting on the user (their label stays up),
+   *  optionally with the words to show. */
+  labelAttention?: (id: number) => { text?: string } | undefined;
+  /** pixel-agents-secure (local): a short mood over the head ("Zzz", a
+   *  coffee), shown when no speech bubble is. Unset: none. */
+  emote?: (id: number) => string | undefined;
 }
 
 /** Derive a short human-readable activity string from tools/status */
@@ -117,8 +130,14 @@ export function ToolOverlay({
   onCloseAgent,
   alwaysShowOverlay,
   labelExtra,
+  labelMode,
+  labelAttention,
+  emote,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0);
+  const flashRef = useRef<ActivityFlash | null>(null);
+  flashRef.current ??= new ActivityFlash();
+  const flash = flashRef.current;
   useEffect(() => {
     let rafId = 0;
     const tick = () => {
@@ -151,6 +170,11 @@ export function ToolOverlay({
 
   // All character IDs
   const allIds = [...agents, ...subagentCharacters.map((s) => s.id)];
+
+  const mode: LabelMode = labelMode ?? (alwaysShowOverlay ? 'always' : 'hover');
+  const showAll = mode === 'always';
+  const now = Date.now();
+  flash.keep(agents);
 
   return (
     <>
@@ -201,9 +225,48 @@ export function ToolOverlay({
           );
         }
 
+        // pixel-agents-secure (local): a mood over the head, where the speech
+        // bubble would be (the bubble wins).
+        const mood = !bubbleNode && !isSub ? emote?.(id) : undefined;
+        if (mood) {
+          const moodSittingOff = ch.state === CharacterState.TYPE ? BUBBLE_SITTING_OFFSET_PX : 0;
+          bubbleTop =
+            project.toScreenY(ch.y + moodSittingOff - BUBBLE_VERTICAL_OFFSET_PX) - EMOTE_HEIGHT_PX;
+          bubbleNode = (
+            <div
+              className="absolute -translate-x-1/2 pointer-events-none pixel-panel px-4 leading-none whitespace-nowrap"
+              style={{
+                left: project.toScreenX(ch.x),
+                top: bubbleTop,
+                height: EMOTE_HEIGHT_PX,
+                fontSize: '16px',
+                lineHeight: `${EMOTE_HEIGHT_PX - 4}px`,
+                zIndex: OVERLAY_BUBBLE_Z_INDEX,
+              }}
+              data-testid="agent-emote"
+            >
+              {mood}
+            </div>
+          );
+        }
+
+        // pixel-agents-secure (local): in 'smart' mode a label also shows by
+        // itself while its agent waits on the user, or just changed activity.
+        const ownText = isSub
+          ? ''
+          : getActivityText(
+              id,
+              agentTools,
+              ch.isActive,
+              ch.bubbleType,
+              ch.waitingAwaitingInput ?? false,
+            );
+        const attention = mode === 'smart' && !isSub ? labelAttention?.(id) : undefined;
+        const flashing = mode === 'smart' && !isSub && flash.note(id, ownText, now);
+
         // Only show the label for hovered or selected agents (unless
         // always-show is on) — the bubble renders regardless.
-        if (!alwaysShowOverlay && !isSelected && !isHovered) {
+        if (!showAll && !isSelected && !isHovered && !attention && !flashing) {
           return bubbleNode && <Fragment key={id}>{bubbleNode}</Fragment>;
         }
 
@@ -226,7 +289,7 @@ export function ToolOverlay({
         // its own so the sub's isn't covered.
         const isDone = ch.bubbleType === 'waiting' && !ch.waitingAwaitingInput;
         const givesWay = (isSub && !isSelected && !isHovered) || id === hoveredSubParentId;
-        if ((isDone && !isSelected && !isHovered) || givesWay) {
+        if ((isDone && !isSelected && !isHovered && !attention) || givesWay) {
           return (
             <Fragment key={id}>
               {bubbleNode}
@@ -261,13 +324,7 @@ export function ToolOverlay({
             activityText = activeRow?.status ?? (sub?.label || 'Subtask');
           }
         } else {
-          activityText = getActivityText(
-            id,
-            agentTools,
-            ch.isActive,
-            ch.bubbleType,
-            ch.waitingAwaitingInput ?? false,
-          );
+          activityText = attention?.text ?? ownText;
         }
 
         // Determine dot color
@@ -278,7 +335,7 @@ export function ToolOverlay({
         const hasWaiting = ch.bubbleType === 'waiting';
 
         let dotColor: string | null = null;
-        if (hasPermission || hasWaiting) {
+        if (hasPermission || hasWaiting || attention) {
           dotColor = 'var(--color-status-permission)';
         } else if (isActive && hasActiveTools) {
           dotColor = 'var(--color-status-active)';
@@ -308,7 +365,7 @@ export function ToolOverlay({
                 left: screenX,
                 top: labelBottom,
                 pointerEvents: isSelected ? 'auto' : 'none',
-                opacity: alwaysShowOverlay && !isSelected && !isHovered ? 0.75 : 1,
+                opacity: (showAll || flashing) && !attention && !isSelected && !isHovered ? 0.75 : 1,
                 zIndex: isSelected ? OVERLAY_LABEL_SELECTED_Z_INDEX : OVERLAY_LABEL_Z_INDEX,
               }}
               data-testid="agent-overlay"

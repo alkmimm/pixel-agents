@@ -251,7 +251,7 @@ function App() {
   // pixel-agents-secure (local): in a read-only office the display options are
   // this browser's own (ViewerBar.tsx) and win over the server's settings.
   // Nothing is sent to the server.
-  const [viewerPrefs, toggleViewerPref] = useViewerPrefs();
+  const [viewerPrefs, toggleViewerPref, setViewerLabelMode] = useViewerPrefs();
   // pixel-agents-secure (local): the opt-in features (Opções → Novidades),
   // only in the read-only office.
   const features = useMemo<ViewerFeatures>(
@@ -270,7 +270,8 @@ function App() {
   const allSignals = useAllSignals();
   useEffect(() => {
     if (!officeReadOnly) return;
-    if (alwaysShowOverlay !== viewerPrefs.labels) setAlwaysShowOverlay(viewerPrefs.labels);
+    const always = viewerPrefs.labelMode === 'always';
+    if (alwaysShowOverlay !== always) setAlwaysShowOverlay(always);
     if (showAreas !== viewerPrefs.areas) setShowAreas(viewerPrefs.areas);
     if (ghostHeadlessAgents !== viewerPrefs.ghosts) setGhostHeadlessAgents(viewerPrefs.ghosts);
   }, [
@@ -539,6 +540,17 @@ function App() {
     },
     [features, allSignals, agentTools],
   );
+  // pixel-agents-secure (local): with labels "quando importa", whose label
+  // stays up by itself: the agents waiting on you.
+  const labelAttention = useCallback(
+    (id: number) => {
+      const tone = agentStatusView(getOfficeState(), id, agentTools).tone;
+      if (tone === 'permission') return {};
+      if (tone === 'input') return { text: 'Esperando você' };
+      return undefined;
+    },
+    [agentTools],
+  );
   // Clicking an agent in the "Precisa de você" box: center on it, open its details.
   const openFromInbox = useCallback((agentId: number) => {
     getOfficeState().selectAndFollow(agentId);
@@ -784,6 +796,8 @@ function App() {
               onCloseAgent={officeReadOnly ? undefined : handleCloseAgent}
               alwaysShowOverlay={alwaysShowOverlay}
               labelExtra={officeReadOnly ? labelExtra : undefined}
+              labelMode={officeReadOnly ? viewerPrefs.labelMode : undefined}
+              labelAttention={officeReadOnly ? labelAttention : undefined}
             />
           </div>
 
@@ -856,7 +870,13 @@ function App() {
       )}
 
       {/* Also in a narrow window: there is no other way to these controls. */}
-      {officeReadOnly && <ViewerBar prefs={viewerPrefs} onToggle={toggleViewerPref} />}
+      {officeReadOnly && (
+        <ViewerBar
+          prefs={viewerPrefs}
+          onToggle={toggleViewerPref}
+          onLabelMode={setViewerLabelMode}
+        />
+      )}
       {officeReadOnly && features.inbox && (
         <AttentionInbox
           officeState={officeState}

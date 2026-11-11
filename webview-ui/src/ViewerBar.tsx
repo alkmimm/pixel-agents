@@ -13,10 +13,11 @@ import { Button } from './components/ui/Button.js';
 import { Checkbox } from './components/ui/Checkbox.js';
 import { canPictureInPicture, fitOffice, openPictureInPicture } from './pictureInPicture.js';
 import type { ViewerFeatures } from './viewer/agentSignals.js';
+import { LABEL_MODES, type LabelMode, parseLabelMode } from './viewer/labelMode.js';
 
 export interface ViewerPrefs extends ViewerFeatures {
-  /** Names and activity above every character, not only on hover. */
-  labels: boolean;
+  /** When the name and activity above a character show (viewer/labelMode.ts). */
+  labelMode: LabelMode;
   /** Bubbles and labels over the characters at all. */
   overlay: boolean;
   areas: boolean;
@@ -26,8 +27,11 @@ export interface ViewerPrefs extends ViewerFeatures {
   sound: boolean;
 }
 
+/** The on/off preferences (everything but the label mode). */
+export type ViewerToggle = Exclude<keyof ViewerPrefs, 'labelMode'>;
+
 const DEFAULT_PREFS: ViewerPrefs = {
-  labels: false,
+  labelMode: 'hover',
   overlay: true,
   areas: false,
   ghosts: false,
@@ -42,9 +46,8 @@ const DEFAULT_PREFS: ViewerPrefs = {
 };
 const STORAGE_KEY = 'pixel-agents-secure.viewer-prefs';
 
-const OPTIONS: Array<{ key: keyof ViewerPrefs; label: string }> = [
+const OPTIONS: Array<{ key: ViewerToggle; label: string }> = [
   { key: 'overlay', label: 'Balões e rótulos' },
-  { key: 'labels', label: 'Rótulos sempre visíveis' },
   { key: 'areas', label: 'Áreas' },
   { key: 'ghosts', label: 'Fantasmas (headless)' },
   { key: 'music', label: 'Player de música' },
@@ -52,7 +55,7 @@ const OPTIONS: Array<{ key: keyof ViewerPrefs; label: string }> = [
 ];
 
 /** pixel-agents-secure (local): opt-in features (agentSignals.ts). */
-const FEATURE_OPTIONS: Array<{ key: keyof ViewerPrefs; label: string; title: string }> = [
+const FEATURE_OPTIONS: Array<{ key: ViewerToggle; label: string; title: string }> = [
   {
     key: 'sessionTitle',
     label: 'Título da sessão',
@@ -75,13 +78,19 @@ function loadPrefs(): ViewerPrefs {
     for (const { key } of [...OPTIONS, ...FEATURE_OPTIONS]) {
       if (typeof saved[key] === 'boolean') prefs[key] = saved[key];
     }
+    // "labels" was the old "always visible" checkbox.
+    prefs.labelMode = parseLabelMode(saved.labelMode, saved.labels);
   } catch {
     // No storage, or not ours: the defaults.
   }
   return prefs;
 }
 
-export function useViewerPrefs(): [ViewerPrefs, (key: keyof ViewerPrefs) => void] {
+export function useViewerPrefs(): [
+  ViewerPrefs,
+  (key: ViewerToggle) => void,
+  (mode: LabelMode) => void,
+] {
   const [prefs, setPrefs] = useState(loadPrefs);
   useEffect(() => {
     try {
@@ -90,18 +99,23 @@ export function useViewerPrefs(): [ViewerPrefs, (key: keyof ViewerPrefs) => void
       // Private window or storage disabled: the choice lasts for this visit.
     }
   }, [prefs]);
-  const toggle = useCallback((key: keyof ViewerPrefs) => {
+  const toggle = useCallback((key: ViewerToggle) => {
     setPrefs((current) => ({ ...current, [key]: !current[key] }));
   }, []);
-  return [prefs, toggle];
+  const setLabelMode = useCallback((labelMode: LabelMode) => {
+    setPrefs((current) => ({ ...current, labelMode }));
+  }, []);
+  return [prefs, toggle, setLabelMode];
 }
 
 export function ViewerBar({
   prefs,
   onToggle,
+  onLabelMode,
 }: {
   prefs: ViewerPrefs;
-  onToggle: (key: keyof ViewerPrefs) => void;
+  onToggle: (key: ViewerToggle) => void;
+  onLabelMode: (mode: LabelMode) => void;
 }) {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [floating, setFloating] = useState(false);
@@ -126,6 +140,20 @@ export function ViewerBar({
               onChange={() => onToggle(key)}
             />
           ))}
+          <span className="text-2xs text-text-muted mt-4">Rótulos aparecem</span>
+          <div className="flex gap-4" data-testid="viewer-label-mode">
+            {LABEL_MODES.map(({ mode, label, title }) => (
+              <Button
+                key={mode}
+                size="sm"
+                variant={prefs.labelMode === mode ? 'active' : 'default'}
+                title={title}
+                onClick={() => onLabelMode(mode)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
           <span className="text-2xs text-text-muted mt-4">Novidades</span>
           {FEATURE_OPTIONS.map(({ key, label, title }) => (
             <span key={key} title={title}>
