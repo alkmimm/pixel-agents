@@ -6,7 +6,7 @@
  * `tool_input` (a Write's file content, an Edit's old/new strings, a Bash
  * command), for PostToolUse the full `tool_response` (file contents, command
  * output). The office needs none of that: it draws a status line ("Running:
- * npm t…", "Editing foo.ts") and routes events by session. So the script
+ * npm run test", "Editing foo.ts") and routes events by session. So the script
  * forwards an ALLOWLIST -- the fields `claude.ts normalizeHookEvent`,
  * `formatToolStatus` and the team provider actually read -- each one capped,
  * and drops everything else, unknown future fields included.
@@ -15,10 +15,8 @@
  * unit-tested in server/__tests__/hardening.test.ts.
  */
 
-import {
-  BASH_COMMAND_DISPLAY_MAX_LENGTH,
-  TASK_DESCRIPTION_DISPLAY_MAX_LENGTH,
-} from '../../../../constants.js';
+import { TASK_DESCRIPTION_DISPLAY_MAX_LENGTH } from '../../../../constants.js';
+import { bashCommandLabel } from './bashCommandLabel.js';
 
 /** Top-level string fields the server reads (event routing, lifecycle, teams). */
 const TOP_LEVEL_STRINGS = [
@@ -43,7 +41,6 @@ export const MAX_FORWARDED_STRING = 512;
 /** `tool_input` string fields and how much of each the status line can show.
  *  One character past the display limit keeps formatToolStatus's ellipsis. */
 const TOOL_INPUT_STRINGS: Record<string, number> = {
-  command: BASH_COMMAND_DISPLAY_MAX_LENGTH + 1,
   description: TASK_DESCRIPTION_DISPLAY_MAX_LENGTH + 1,
   team_name: 128,
   recipient: 128,
@@ -66,6 +63,8 @@ function filterToolInput(input: unknown): Record<string, unknown> | undefined {
   const out: Record<string, unknown> = {};
   const file = baseName(raw.file_path);
   if (file !== undefined) out.file_path = file;
+  // A shell command leaves only as its program and verb (bashCommandLabel.ts).
+  if (typeof raw.command === 'string') out.command = bashCommandLabel(raw.command);
   for (const [key, max] of Object.entries(TOOL_INPUT_STRINGS)) {
     const value = capped(raw[key], max);
     if (value !== undefined) out[key] = value;

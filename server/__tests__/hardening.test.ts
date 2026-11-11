@@ -156,8 +156,56 @@ describe('H4: the hook forwards an allowlisted, capped payload', () => {
       tool_name: 'Bash',
       tool_input: { command },
     }) as { tool_input: { command: string } };
-    expect(filtered.tool_input.command.length).toBeLessThanOrEqual(31);
+    expect(filtered.tool_input.command).toBe('echo');
     expect(filtered.tool_input.command).not.toContain('id_rsa');
+  });
+
+  it('a Bash command leaves only as its program and, for a known CLI, its verb', async () => {
+    const { bashCommandLabel, BASH_LABEL_MAX_LENGTH } = await import(
+      '../src/providers/hook/claude/hooks/bashCommandLabel.js'
+    );
+    const { filterHookPayload } = await load();
+    const { formatToolStatus } = await import('../src/providers/hook/claude/claude.js');
+    const cases: Array<[string, string]> = [
+      ['npm test', 'npm test'],
+      ['npm run test -- --reporter=verbose', 'npm run test'],
+      ['git commit -m "senha: hunter2"', 'git commit'],
+      ['git -C /home/u/repo log', 'git'],
+      ['cd /home/u/secret-project && git push origin main', 'git push'],
+      ['PGPASSWORD=s3cr3tvalue psql -h db.internal -U admin', 'psql'],
+      ['export API_KEY=abcd1234efgh && ./scripts/deploy.sh --prod', 'deploy.sh'],
+      ['sudo systemctl restart nginx', 'systemctl restart'],
+      ['curl -H "Authorization: Bearer abc123def456" https://api.example.com/x', 'curl'],
+      ['cat ~/.ssh/id_rsa | base64', 'cat'],
+      ['make office-status', 'make office-status'],
+      ['cd /tmp', 'cd'],
+      ['--weird', ''],
+      ['TOKEN=abcd1234efgh', ''],
+      ['', ''],
+    ];
+    for (const [command, label] of cases) {
+      expect(bashCommandLabel(command)).toBe(label);
+      // Idempotent: the server re-labels what the hook script already labeled.
+      expect(bashCommandLabel(bashCommandLabel(command))).toBe(label);
+      const filtered = filterHookPayload({
+        hook_event_name: 'PreToolUse',
+        session_id: 's1',
+        tool_name: 'Bash',
+        tool_input: { command },
+      }) as { tool_input: { command: string } };
+      expect(filtered.tool_input.command).toBe(label);
+      const status = formatToolStatus('Bash', { command });
+      expect(status).toBe(label ? `Running: ${label}` : 'Running command');
+      const secrets = ['hunter2', 's3cr3tvalue', 'abcd1234efgh', 'abc123def456', 'id_rsa'];
+      for (const secret of [...secrets, 'secret-project', 'db.internal', 'api.example.com']) {
+        expect(status).not.toContain(secret);
+      }
+    }
+    // Every word that could leave is bounded.
+    const long = `${'a'.repeat(200)} ${'b'.repeat(200)}`;
+    expect(bashCommandLabel(long)).toBe('');
+    expect(bashCommandLabel(`git ${'b'.repeat(200)}`)).toBe('git');
+    expect(bashCommandLabel(`npm run ${'c'.repeat(24)}`).length).toBeLessThanOrEqual(BASH_LABEL_MAX_LENGTH);
   });
 
   it('the office reads the same thing from the filtered payload as from the raw one', async () => {

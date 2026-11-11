@@ -4,10 +4,7 @@ import * as path from 'path';
 
 import { normalizeProjectPath } from '../../../../../core/src/normalizeProjectPath.js';
 import type { AgentEvent, HookProvider } from '../../../../../core/src/provider.js';
-import {
-  BASH_COMMAND_DISPLAY_MAX_LENGTH,
-  TASK_DESCRIPTION_DISPLAY_MAX_LENGTH,
-} from '../../../constants.js';
+import { TASK_DESCRIPTION_DISPLAY_MAX_LENGTH } from '../../../constants.js';
 import {
   areHooksInstalled as installerAreHooksInstalled,
   installHooks as installerInstallHooks,
@@ -24,6 +21,7 @@ import {
   CLAUDE_TERMINAL_NAME_PREFIX,
 } from './constants.js';
 import { conversationTitle } from './conversationTitle.js';
+import { bashCommandLabel } from './hooks/bashCommandLabel.js';
 import { filterHookPayload } from './hooks/hookPayloadFilter.js';
 import { isInheritedClaudeSessionEnv } from './sessionEnv.js';
 
@@ -43,8 +41,9 @@ export function formatToolStatus(toolName: string, input?: unknown): string {
     case 'Write':
       return `Writing ${base(inp.file_path)}`;
     case 'Bash': {
-      const cmd = (inp.command as string) || '';
-      return `Running: ${cmd.length > BASH_COMMAND_DISPLAY_MAX_LENGTH ? cmd.slice(0, BASH_COMMAND_DISPLAY_MAX_LENGTH) + '\u2026' : cmd}`;
+      // pixel-agents-secure (H4): the program and its verb, never arguments.
+      const label = bashCommandLabel(inp.command);
+      return label ? `Running: ${label}` : 'Running command';
     }
     case 'Glob':
       return 'Searching files';
