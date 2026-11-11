@@ -66,10 +66,45 @@ function isEntry(value: unknown): value is ActivityEntry {
   return !!e && typeof e === 'object' && typeof e.t === 'number' && typeof e.k === 'string';
 }
 
+/**
+ * Whether the server keeps the history (the viewer's does). The extension's
+ * does not, on purpose (H17: no activity log inside the extension), so in the
+ * VS Code panel each agent's TURN state is followed here instead, from the
+ * status messages the panel already receives: enough to tell since when an
+ * agent waits on you after the bubble over it has faded. No tool entries,
+ * nothing stored, and it starts over when the panel reloads.
+ */
+let serverKeepsHistory = false;
+
+function followTurnState(id: number, k: 'turn' | 'done' | 'input'): void {
+  const current = activities.get(id) ?? { entries: [] };
+  const last = current.entries[current.entries.length - 1];
+  if (last?.k === k) return;
+  activities = new Map(activities).set(id, {
+    ...current,
+    entries: [...current.entries, { t: Date.now(), k }].slice(-MAX_ENTRIES),
+  });
+  changed();
+}
+
 function onServerMessage(raw: unknown): void {
   const msg = raw as Record<string, unknown>;
   switch (msg.type) {
+    case 'agentStatus': {
+      if (serverKeepsHistory || typeof msg.id !== 'number') return;
+      if (msg.status === 'active') followTurnState(msg.id, 'turn');
+      else if (msg.status === 'waiting') {
+        followTurnState(msg.id, msg.awaitingInput === true ? 'input' : 'done');
+      }
+      return;
+    }
+    case 'agentToolStart': {
+      // A tool also means a turn, even when no 'active' status came first.
+      if (!serverKeepsHistory && typeof msg.id === 'number') followTurnState(msg.id, 'turn');
+      return;
+    }
     case 'agentActivityHistory': {
+      serverKeepsHistory = true;
       const next = new Map<number, AgentActivity>();
       for (const agent of (msg.agents as Array<Record<string, unknown>>) ?? []) {
         if (typeof agent.id !== 'number') continue;
@@ -84,6 +119,7 @@ function onServerMessage(raw: unknown): void {
       return;
     }
     case 'agentActivity': {
+      serverKeepsHistory = true;
       if (typeof msg.id !== 'number') return;
       const current = activities.get(msg.id) ?? { entries: [] };
       const next: AgentActivity = { ...current };
