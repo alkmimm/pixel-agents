@@ -265,8 +265,7 @@ export function ViewerBar({
         >
           Enquadrar
         </Button>
-        {/* Not in the VS Code panel: a webview cannot float its own window. */}
-        {!embedded && canPictureInPicture() && !floating && (
+        {canPictureInPicture() && !floating && (
           <Button
             size="sm"
             className="border-border! shadow-pixel"
