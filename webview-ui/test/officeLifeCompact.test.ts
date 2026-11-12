@@ -248,3 +248,43 @@ test('compact office: nobody ends up standing on floor that leads nowhere', () =
     }
   }
 });
+
+test('compact office: a room growing over the corridor leaves everyone on their seats, and walkers get home', () => {
+  // beta's room is over the corridor: when it grows, the office moves down and it stays.
+  const { os, rooms, second, add } = compact([
+    [1, 'alpha'],
+    [2, 'beta'],
+    [3, 'beta'],
+  ]);
+  second();
+  const onOwnSeat = (id: number) => {
+    const ch = os.characters.get(id)!;
+    const seat = ch.seatId ? os.seats.get(ch.seatId) : undefined;
+    return (
+      seat !== undefined &&
+      seat.seatCol === ch.tileCol &&
+      seat.seatRow === ch.tileRow &&
+      ch.x === seat.seatCol * 16 + 8 &&
+      ch.y === seat.seatRow * 16 + 8
+    );
+  };
+  for (const id of [1, 2, 3]) assert.ok(onOwnSeat(id), `agent ${id} does not start on its seat`);
+  // Agent 3 is out for a walk and on its way back when the room grows.
+  const c = os.characters.get(3)!;
+  assert.ok(os.sendOnErrand(3, 4, c.tileRow > 8 ? 12 : 8) || os.sendOnErrand(3, 6, 11));
+  for (let s = 0; s < 30 && c.state === CharacterState.WALK; s++) second();
+  assert.ok(os.sendHome(3), 'agent 3 cannot walk home');
+  second();
+  assert.equal(c.state, CharacterState.WALK);
+  let moved = false;
+  for (let id = 10; id < 22 && !moved; id++) {
+    add(id, 'beta');
+    moved = rooms.lastShift.row !== 0;
+  }
+  assert.ok(moved, 'the office never moved down');
+  // Whoever sat stays on its seat, wherever that is now.
+  for (const id of [1, 2]) assert.ok(onOwnSeat(id), `agent ${id} is off its seat after the room grew`);
+  // And the one walking home gets there.
+  for (let s = 0; s < 60 && c.state === CharacterState.WALK; s++) second();
+  assert.ok(onOwnSeat(3), `agent 3 ended at ${c.tileCol},${c.tileRow}, not on its seat`);
+});

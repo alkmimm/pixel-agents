@@ -680,11 +680,34 @@ export class OfficeState {
   ): void {
     const before = new Map<
       number,
-      Pick<Character, 'x' | 'y' | 'tileCol' | 'tileRow' | 'dir' | 'seatId'> & { dest?: Tile }
+      Pick<Character, 'x' | 'y' | 'tileCol' | 'tileRow' | 'dir' | 'seatId'> & {
+        dest?: Tile;
+        /** It was on a seat (its own, or one it sits in as a guest)... */
+        on?: 'own' | 'guest';
+        /** ...or walking to one. */
+        to?: 'own' | 'guest';
+      }
     >();
+    // A seat is found again by its name, not by where it was: a room that grows over
+    // the corridor keeps its place while everything else moves down, so its seats do
+    // not move by `shift` like the rest.
+    const seatOf = (ch: Character, which: 'own' | 'guest'): Seat | undefined => {
+      const uid = which === 'own' ? ch.seatId : ch.guestSeat?.uid;
+      return uid ? this.seats.get(uid) : undefined;
+    };
+    const which = (ch: Character, tile: Tile | undefined): 'own' | 'guest' | undefined => {
+      if (!tile) return undefined;
+      for (const kind of ['own', 'guest'] as const) {
+        const seat = seatOf(ch, kind);
+        if (seat && seat.seatCol === tile.col && seat.seatRow === tile.row) return kind;
+      }
+      return undefined;
+    };
     for (const ch of this.characters.values()) {
       const last = ch.state === CharacterState.WALK ? ch.path[ch.path.length - 1] : undefined;
       before.set(ch.id, {
+        on: which(ch, { col: ch.tileCol, row: ch.tileRow }),
+        to: which(ch, last),
         x: ch.x + shift.col * TILE_SIZE,
         y: ch.y + shift.row * TILE_SIZE,
         tileCol: ch.tileCol + shift.col,
@@ -707,10 +730,19 @@ export class OfficeState {
         this.placeInSeat(ch, ch.seatId);
         continue;
       }
-      ch.x = was.x;
-      ch.y = was.y;
-      ch.tileCol = was.tileCol;
-      ch.tileRow = was.tileRow;
+      const sitsOn = was.on ? seatOf(ch, was.on) : undefined;
+      if (sitsOn) {
+        // On a seat: it stays on it, wherever the seat is now.
+        ch.tileCol = sitsOn.seatCol;
+        ch.tileRow = sitsOn.seatRow;
+        ch.x = sitsOn.seatCol * TILE_SIZE + TILE_SIZE / 2;
+        ch.y = sitsOn.seatRow * TILE_SIZE + TILE_SIZE / 2;
+      } else {
+        ch.x = was.x;
+        ch.y = was.y;
+        ch.tileCol = was.tileCol;
+        ch.tileRow = was.tileRow;
+      }
       ch.dir = was.dir;
       if (ch.state === CharacterState.WALK) {
         // The way it was walking may be gone: stopped for now, and on its way again below.
@@ -733,9 +765,12 @@ export class OfficeState {
         }
       }
       if (ch.state === CharacterState.WALK && was.dest) {
-        // It goes on to where it was going (moved along with everything), by a way
-        // over the new floor; with none, it stops where it is and the director decides.
-        ch.path = this.wayTo(ch, was.dest);
+        // It goes on to where it was going (moved along with everything; a seat,
+        // wherever it is now), by a way over the new floor; with none, it stops
+        // where it is and the director decides.
+        const goesTo = was.to ? seatOf(ch, was.to) : undefined;
+        const dest = goesTo ? { col: goesTo.seatCol, row: goesTo.seatRow } : was.dest;
+        ch.path = this.wayTo(ch, dest);
       }
     }
     // The cups on the table and the robot move along too.
