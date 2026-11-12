@@ -276,12 +276,21 @@ test('compact office: a room growing over the corridor leaves everyone on their 
   assert.ok(os.sendHome(3), 'agent 3 cannot walk home');
   second();
   assert.equal(c.state, CharacterState.WALK);
+  const b = os.characters.get(2)!;
+  const sat = { col: b.tileCol, row: b.tileRow };
   let moved = false;
   for (let id = 10; id < 22 && !moved; id++) {
     add(id, 'beta');
     moved = rooms.lastShift.row !== 0;
   }
   assert.ok(moved, 'the office never moved down');
+  // The case this is about: beta's seats did not move with the rest of the office,
+  // so moving its people by the same amount would take them off their chairs.
+  const seat = os.seats.get(b.seatId!)!;
+  assert.notDeepEqual(
+    [seat.seatCol, seat.seatRow],
+    [sat.col + rooms.lastShift.col, sat.row + rooms.lastShift.row],
+  );
   // Whoever sat stays on its seat, wherever that is now.
   for (const id of [1, 2]) assert.ok(onOwnSeat(id), `agent ${id} is off its seat after the room grew`);
   // And the one walking home gets there.
