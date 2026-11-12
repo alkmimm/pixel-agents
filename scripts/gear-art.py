@@ -282,11 +282,14 @@ def shield():
 
 def bow():
     return {
-        'colors': {'w': WOOD, 'o': '#5a3a1c', 'q': QUIVER, 'r': RED, 'f': WHITE},
-        # The quiver's arrows over one shoulder, the bow's limb down the other side.
+        'colors': {'w': WOOD, 'o': '#5a3a1c', 'q': QUIVER, 'r': RED, 'f': WHITE, 's': '#f1e3b0'},
+        # Slung across the body: the string over the chest, the bow's limbs past
+        # one shoulder and the other hip, the quiver's arrows over the far shoulder.
         FRONT: [
-            (12, 9, ['r.r', 'rfr', '.f.', '.f.', '.q.']),
-            (0, 13, ['.o', 'ow', 'w.', 'w.', 'w.', 'w.', 'w.', 'w.', 'ow', '.o']),
+            (12, 8, ['r.r.', 'frfr', '.ff.', '.oqo', '.oqo']),
+            (4, 17, ['s......', '.s.....', '..s....', '...s...', '....s..', '.....s.', '......s']),
+            (0, 10, ['..o', '.ow', 'oww', 'ow.', 'ow.', 'ow.']),
+            (12, 22, ['.wo', '.wo', 'wwo', 'wo.', 'o..']),
         ],
         BACK: [
             (3, 13, [
