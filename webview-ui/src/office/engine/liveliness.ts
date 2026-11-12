@@ -70,6 +70,10 @@ export interface Liveliness {
   /** A seat that is not its own, where it sits a while (a sofa with its coffee, a pouf at
    *  the video game): walking to it until `seated`, then sat for `sec` (officeState.ts). */
   guestSeat: { uid: string; sec: number; seated: boolean; facing: Direction | null } | null;
+  /** Walking, how long it has stood waiting for someone in its way (officeState.ts)... */
+  yieldSec: number;
+  /** ...and whether it already looked for a way around in this wait. */
+  yieldTried: boolean;
 }
 
 export function startLiveliness(): Liveliness {
@@ -82,6 +86,8 @@ export function startLiveliness(): Liveliness {
     wasActive: false,
     carrying: false,
     guestSeat: null,
+    yieldSec: 0,
+    yieldTried: false,
   };
 }
 

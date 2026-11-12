@@ -109,6 +109,13 @@ function ringsAround(home: Tile): (tile: Tile) => number {
 }
 
 const NO_EXTRAS: SceneExtra[] = [];
+/** pixel-agents-secure (local): a walker with someone in its way waits this long
+ *  before looking for a way around... */
+export const YIELD_DETOUR_SEC = 0.5;
+/** ...which may be this many steps longer than the way it had... */
+const YIELD_DETOUR_EXTRA_STEPS = 6;
+/** ...and, still held up after this long, walks through (a corridor one tile wide). */
+export const YIELD_PASS_SEC = 2;
 /** pixel-agents-secure (local): with `roam`, a rest in the chair lasts this share of the usual... */
 const ROAM_REST_SCALE = 0.35;
 /** ...a stroll has more walks in it... */
@@ -1541,6 +1548,59 @@ export class OfficeState {
     return true;
   }
 
+  /** Who else is on a tile, or stepping into it. Helpers and those coming or going
+   *  (the matrix effect) are no one's obstacle. */
+  private someoneAt(tile: { col: number; row: number }, self: Character): Character | null {
+    for (const o of this.characters.values()) {
+      if (o === self || o.isSubagent || o.matrixEffect) continue;
+      if (o.tileCol === tile.col && o.tileRow === tile.row) return o;
+      const into = o.state === CharacterState.WALK && o.moveProgress > 0 ? o.path[0] : undefined;
+      if (into && into.col === tile.col && into.row === tile.row) return o;
+    }
+    return null;
+  }
+
+  /**
+   * Agents do not walk through each other: about to step onto a tile someone
+   * is on (or stepping into), a walker stands and waits. After a moment it
+   * looks for a way around (of two facing each other, only the older agent
+   * does: the other waits for it to pass); held up for long, it goes through,
+   * so that nobody is ever stuck. True while it must stand this frame.
+   */
+  private givesWay(ch: Character, dt: number): boolean {
+    const next = ch.path[0];
+    const other =
+      ch.state === CharacterState.WALK && next && ch.moveProgress === 0
+        ? this.someoneAt(next, ch)
+        : null;
+    if (!other) {
+      ch.yieldSec = 0;
+      ch.yieldTried = false;
+      return false;
+    }
+    ch.yieldSec += dt;
+    if (ch.yieldSec >= YIELD_PASS_SEC) return false;
+    const dest = ch.path[ch.path.length - 1];
+    const facingWalker = other.state === CharacterState.WALK && other.id < ch.id;
+    if (ch.yieldSec >= YIELD_DETOUR_SEC && !ch.yieldTried && dest !== next && !facingWalker) {
+      ch.yieldTried = true;
+      const key = `${next.col},${next.row}`;
+      const destKey = `${dest.col},${dest.row}`;
+      const added = !this.blockedTiles.has(key);
+      if (added) this.blockedTiles.add(key);
+      const destWasBlocked = this.blockedTiles.delete(destKey);
+      const around = this.withOwnSeatUnblocked(ch, () =>
+        findPath(ch.tileCol, ch.tileRow, dest.col, dest.row, this.tileMap, this.blockedTiles),
+      );
+      if (destWasBlocked) this.blockedTiles.add(destKey);
+      if (added) this.blockedTiles.delete(key);
+      if (around.length > 0 && around.length <= ch.path.length + YIELD_DETOUR_EXTRA_STEPS) {
+        ch.path = around;
+      }
+    }
+    return true;
+  }
+
   /** One frame of a guest seat: sit on arriving, leave it when called to work or done. */
   private tickGuestSeat(ch: Character): void {
     const guest = ch.guestSeat;
@@ -1701,18 +1761,21 @@ export class OfficeState {
         // or around (liveliness.ts) instead of its lead's way.
         if (ch.glanceSec > 0 && ch.state === CharacterState.IDLE) ch.dir = ch.glanceDir;
       } else {
+        // pixel-agents-secure (local): a walker stands while someone is in its way.
         // Temporarily unblock own seat so character can pathfind to it
-        this.withOwnSeatUnblocked(ch, () =>
-          updateCharacter(
-            ch,
-            dt,
-            this.wanderPool(ch),
-            this.seats,
-            this.tileMap,
-            this.blockedTiles,
-            this.pace(),
-          ),
-        );
+        if (!this.givesWay(ch, dt)) {
+          this.withOwnSeatUnblocked(ch, () =>
+            updateCharacter(
+              ch,
+              dt,
+              this.wanderPool(ch),
+              this.seats,
+              this.tileMap,
+              this.blockedTiles,
+              this.pace(),
+            ),
+          );
+        }
         this.tickGuestSeat(ch);
       }
 
