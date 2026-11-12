@@ -45,7 +45,7 @@ describe('model level', () => {
   it('gear is one number per tier and effort step, and reads back', () => {
     expect(modelGear(undefined)).toBe(0);
     expect(modelGear('llama-9', 'xhigh')).toBe(0);
-    for (const none of [0, 1, 2, -3, 3.5, 15, 99, NaN]) expect(gearParts(none)).toBeUndefined();
+    for (const none of [0, 1, 2, -3, 3.5, 21, 99, NaN]) expect(gearParts(none)).toBeUndefined();
     const seen = new Set<number>();
     for (const [model, tier] of [
       ['claude-haiku-5-5', 'haiku'],

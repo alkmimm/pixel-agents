@@ -395,6 +395,13 @@ def cape(ramp):
     }
 
 
+# The guardian's collar, with its clasp: what tells it from the front in every
+# frame (its shield is on its back).
+COLLAR = {
+    'colors': {'o': TEAL[0], 'b': TEAL[2], 'c': CYAN},
+    FRONT: (4, 15, ['obbccbbo', '.obccbo.', '..oooo..']),
+    SIDE: (6, 19, ['obbc', '.ooo']),
+}
 # The ninja's mask: over the lower face, in the hood's opening.
 MASK = {
     'colors': {'b': NIGHT[2], 's': NIGHT[1]},
@@ -500,7 +507,7 @@ def sheets():
         'sonnet': ([recolour(shirt, GREEN)], [bow()], hood(), FEATHER),
         'opus': ([recolour(jeans, IRON), recolour(sleeves, STEEL)], [sword(), shield()], helm(), PLUME),
         'fable': ([recolour(skirt, PURPLE), recolour(sleeves, PURPLE)], [staff()], hat(), HAT_STAR),
-        'codexmini': ([recolour(shirt, TEAL)], [shield(TEAL, CYAN)], None, headband(TEAL[2], TEAL[0])),
+        'codexmini': ([recolour(shirt, TEAL)], [shield(TEAL, CYAN), COLLAR], None, headband(TEAL[2], TEAL[0])),
         'codex': (
             [recolour(jeans, NIGHT), recolour(sleeves, NIGHT)],
             [sword({'o': NIGHT[0], 'b': STEEL[2], 'l': STEEL[3], 'g': TEAL[2], 'w': TEAL[1]}), MASK],
