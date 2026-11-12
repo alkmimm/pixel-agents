@@ -59,6 +59,10 @@ const PLANT = 'PLANT';
 
 /** The neon sign over the lounge's sofas, hung on the wall. */
 export const NEON_SIGN = 'NEON_COFFEE';
+/** The coffee machine beside it, standing against the wall. */
+export const COFFEE_MACHINE = 'COFFEE_MACHINE';
+/** The furniture of the compact office that is on a wall tile, on purpose. */
+export const ON_LOUNGE_WALL: ReadonlySet<string> = new Set([NEON_SIGN, COFFEE_MACHINE]);
 /** The lounge of the compact office: 7x7 inside, centred on the corridor. */
 const LOUNGE_HALF = 3;
 const WALL_COLOR: ColorValue = { h: 222, s: 28, b: -100, c: -55 };
@@ -358,11 +362,12 @@ function composeCompact(base: OfficeLayout, specs: readonly RoomState[]): Compos
   add('sofa-esq', 'SOFA_SIDE', tableCol - 1, tableRow);
   add('sofa-dir', 'SOFA_SIDE:left', tableCol + 2, tableRow);
   add('cafe', 'COFFEE', tableCol, tableRow + 1);
-  // The coffee corner (scripts/coffee-corner-art.py): the machine at the top
-  // of the lounge and, hung on the wall over the sofas, the neon sign. The
-  // sign is the one piece of furniture on a wall: its lower row is the wall's.
-  add('maquina-cafe', 'COFFEE_MACHINE', ROOM_PITCH - 2, loungeTop);
+  // The coffee corner (scripts/coffee-corner-art.py): the neon sign hung on
+  // the wall over the sofas and, right beside it, the machine standing against
+  // the wall (its upper half over the wall, its counter on the lounge's first
+  // row). These two are the only furniture on a wall (ON_LOUNGE_WALL).
   add('neon-cafe', NEON_SIGN, tableCol, loungeTop - 2);
+  add('maquina-cafe', COFFEE_MACHINE, tableCol + 2, loungeTop - 1);
   add('planta-1', PLANT, 1, loungeTop);
   add('planta-2', 'PLANT_2', ROOM_PITCH - 1, loungeTop);
   add('lixeira', 'BIN', 1, loungeBottom);

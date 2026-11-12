@@ -3,10 +3,12 @@ import { describe, expect, it } from 'vitest';
 import type { OfficeLayout } from '../src/office/types.js';
 import { TileType } from '../src/office/types.js';
 import {
+  COFFEE_MACHINE,
   composeOffice,
   MAX_ROOMS,
   MAX_STATION_ROWS,
   NEON_SIGN,
+  ON_LOUNGE_WALL,
   planRooms,
   ROOM_LINGER_MS,
   ROOM_PITCH,
@@ -327,18 +329,27 @@ describe('project rooms: the compact office', () => {
   it('no furniture stands on a wall or outside its room', () => {
     const { layout } = compact([room('a', 0, 3), room('b', 1, 2)]);
     for (const item of layout.furniture) {
-      if (item.type === NEON_SIGN) continue;
+      if (ON_LOUNGE_WALL.has(item.type)) continue;
       const tile = layout.tiles[item.row * layout.cols + item.col];
       expect(tile !== W && tile !== V, item.uid).toBe(true);
     }
-    // The neon sign is the exception: it hangs on the lounge's top wall
-    // (two tiles wide, its lower row on the wall), inside the plan.
+    // The coffee corner is the exception. The neon sign hangs on the lounge's
+    // top wall (two tiles wide, its lower row on the wall), inside the plan.
+    const tile = (col: number, row: number) => layout.tiles[row * layout.cols + col];
     const sign = layout.furniture.find((f) => f.type === NEON_SIGN)!;
     expect(sign.row).toBeGreaterThanOrEqual(0);
     for (const dc of [0, 1]) {
-      expect(layout.tiles[(sign.row + 1) * layout.cols + sign.col + dc]).toBe(W);
-      expect(layout.tiles[(sign.row + 2) * layout.cols + sign.col + dc]).not.toBe(W);
+      expect(tile(sign.col + dc, sign.row + 1)).toBe(W);
+      expect(tile(sign.col + dc, sign.row + 2)).not.toBe(W);
     }
+    // The machine stands against that wall, right beside the sign: its upper
+    // half over the wall, its counter on the floor.
+    const machine = layout.furniture.find((f) => f.type === COFFEE_MACHINE)!;
+    expect([machine.col, machine.row]).toEqual([sign.col + 2, sign.row + 1]);
+    expect(tile(machine.col, machine.row)).toBe(W);
+    expect(tile(machine.col, machine.row + 1)).not.toBe(W);
+    expect(tile(machine.col, machine.row + 1)).not.toBe(V);
+    expect(layout.furniture.filter((f) => ON_LOUNGE_WALL.has(f.type))).toHaveLength(2);
   });
 
   it('a room opening on the other side moves no room already there', () => {
