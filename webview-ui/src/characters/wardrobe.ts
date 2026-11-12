@@ -76,15 +76,24 @@ const BODY_SHEETS: readonly Underwear[] = ['under', 'utop'];
 /** An eye folder's pieces: the iris comes in one sheet per eye-row variant (which eye pixel takes the eye colour). */
 const EYE_PIECES = ['whites', ...EYE_ROWS.map((rows) => `iris.${rows}`), 'lashes'];
 export const PROPS = { glasses: 'props/reading-glasses', paper: 'props/paper' } as const;
-/** pixel-agents-secure (local): the model gear sheets, laid over the finished character
- *  (modelGear.ts; drawn by scripts/gear-art.py). */
-export const GEAR_ART = {
-  haiku: 'gear/haiku',
-  sonnet: 'gear/sonnet',
-  opus: 'gear/opus',
-  fable: 'gear/fable',
-  gem: 'gear/gem',
-} as const;
+/**
+ * pixel-agents-secure (local): the model gear sheets (modelGear.ts; drawn by
+ * scripts/gear-art.py). Per class, the gear with 0, 1 or 2 of the effort's additions, laid
+ * over the finished character; and, for a class with headgear, where the character's hair
+ * and hat are not drawn under it.
+ */
+export const GEAR_CLASSES = ['haiku', 'sonnet', 'opus', 'fable'] as const;
+export type GearClass = (typeof GEAR_CLASSES)[number];
+const GEAR_HEADGEAR: ReadonlySet<GearClass> = new Set(['sonnet', 'opus', 'fable']);
+export const gearSheetArt = (gear: GearClass, additions: number): string =>
+  `gear/${gear}_${additions}`;
+export const gearHideArt = (gear: GearClass): string | undefined =>
+  GEAR_HEADGEAR.has(gear) ? `gear/${gear}_hide` : undefined;
+const GEAR_ART: readonly string[] = GEAR_CLASSES.flatMap((gear) => {
+  const sheets = [0, 1, 2].map((additions) => gearSheetArt(gear, additions));
+  const hide = gearHideArt(gear);
+  return hide ? [...sheets, hide] : sheets;
+});
 /** Pieces a part of a category may come with, each its own sheet (<piece>/<part id>.png): an outfit's tie. */
 const PART_EXTRAS: Record<string, readonly string[]> = { full: ['tie'] };
 
@@ -99,7 +108,7 @@ export const eyeArt = (folder: string, piece: string, rows?: EyeRows): string =>
  * shape has only the ones it draws, and a part's extra pieces). `eyeFolders` are the folders under eyes/.
  */
 function expectedArt(manifest: WardrobeManifest, eyeFolders: readonly string[]) {
-  const required = new Set<string>([...Object.values(PROPS), ...Object.values(GEAR_ART)]);
+  const required = new Set<string>([...Object.values(PROPS), ...GEAR_ART]);
   const optional = new Set<string>();
   for (const [cat, parts] of Object.entries(manifest.parts)) {
     for (const { id } of parts) {

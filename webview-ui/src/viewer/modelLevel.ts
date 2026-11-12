@@ -20,6 +20,7 @@ const EFFORT_BONUS: ReadonlyMap<string, number> = new Map([
   ['max', 10],
 ]);
 const TOP_BONUS = 10;
+const HIGH_BONUS = 6;
 
 /** The family in a model id ("claude-opus-5-5" → opus), if it is one of ours. */
 export function modelTier(model: string | undefined): ModelTier | undefined {
@@ -39,20 +40,28 @@ export function modelLevel(model: string | undefined, effort?: string): number |
   return tier ? BASE_LEVEL[tier] + bonusOf(effort) : undefined;
 }
 
+/** What the effort adds to a class's gear: nothing, a head piece (high), and a cape too (top). */
+export type GearAdditions = 0 | 1 | 2;
+const additionsOf = (effort: string | undefined): GearAdditions => {
+  const bonus = bonusOf(effort);
+  return bonus >= TOP_BONUS ? 2 : bonus >= HIGH_BONUS ? 1 : 0;
+};
+
 /**
  * The gear a character wears, as one number (it keys the sprite cache): 0 for
- * none, else the tier (1-4) doubled, plus one at the top effort.
+ * none, else the tier (1-4) times three, plus the effort's additions.
  */
 export function modelGear(model: string | undefined, effort?: string): number {
   const tier = modelTier(model);
   if (!tier) return 0;
-  return (MODEL_TIERS.indexOf(tier) + 1) * 2 + (bonusOf(effort) >= TOP_BONUS ? 1 : 0);
+  return (MODEL_TIERS.indexOf(tier) + 1) * 3 + additionsOf(effort);
 }
 
-/** A gear number back into its tier and whether it is the top effort's. */
-export function gearParts(gear: number): { tier: ModelTier; top: boolean } | undefined {
-  const tier = MODEL_TIERS[(gear >> 1) - 1];
-  return gear > 0 && tier ? { tier, top: (gear & 1) === 1 } : undefined;
+/** A gear number back into its tier and the effort's additions. */
+export function gearParts(gear: number): { tier: ModelTier; additions: GearAdditions } | undefined {
+  if (!Number.isInteger(gear) || gear <= 0) return undefined;
+  const tier = MODEL_TIERS[Math.floor(gear / 3) - 1];
+  return tier ? { tier, additions: (gear % 3) as GearAdditions } : undefined;
 }
 
 /** "Lv. 100 · fable-5-2 · xhigh" for a card, or undefined when there is no level. */

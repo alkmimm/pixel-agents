@@ -27,7 +27,7 @@ import {
   type RenderProfile,
   shownArt,
 } from './slots.js';
-import { gearArt } from './modelGear.js';
+import { gearArt, UNDER_HEADGEAR } from './modelGear.js';
 import { type CategoryPalette, PROPS, type Wardrobe } from './wardrobe.js';
 
 /** A piece's layer, with the key its tinted versions are cached under. */
@@ -344,17 +344,18 @@ export class CharacterRenderer {
   buildSheet(p: RenderProfile, opts: SheetOptions = {}): Uint8ClampedArray {
     const d = new Uint8ClampedArray(SHEET_W * SHEET_H * 4);
     const drawn = new Map<string, Uint8ClampedArray>();
+    const gear = opts.only ? undefined : gearArt(p.gear);
+    const hide = gear?.hide ? this.wardrobe.art.get(gear.hide) : undefined;
     for (const layer of LAYERS) {
       if (opts.only && layer.pix !== opts.only) continue;
       if (opts.except && layer.pix === opts.except) continue;
-      const px = this.layerPixels(p, layer);
+      let px = this.layerPixels(p, layer);
       if (!px) continue;
+      if (hide && UNDER_HEADGEAR.has(layer.pix)) px = without(px, hide);
       over(d, px, layer.behind ? drawn.get(layer.behind) : undefined);
       drawn.set(layer.pix, px);
     }
-    if (!opts.only) {
-      for (const art of gearArt(p.gear)) over(d, this.wardrobe.art.get(art)!);
-    }
+    if (gear) over(d, this.wardrobe.art.get(gear.sheet)!);
     if (!opts.only && opts.props !== false) {
       if (!eyeShape(p).bare) over(d, this.wardrobe.art.get(PROPS.glasses)!);
       over(d, this.wardrobe.art.get(PROPS.paper)!);
@@ -396,6 +397,15 @@ function sheetKey(p: RenderProfile): string {
 
 /** The back view: the sheet's middle (up) row of frames. */
 const BACK_ROW = [CHAR_FRAME_H * SHEET_W * 4, 2 * CHAR_FRAME_H * SHEET_W * 4] as const;
+
+/** `px` without the pixels `mask` covers (a copy: layers are cached and shared). */
+function without(px: Uint8ClampedArray, mask: Uint8ClampedArray): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(px);
+  for (let i = 3; i < out.length; i += 4) {
+    if (isOpaque(mask[i])) out[i] = 0;
+  }
+  return out;
+}
 
 /** Alpha-composite `px` over `d`; in the back view, not where `behind` (a layer below) has pixels. */
 function over(d: Uint8ClampedArray, px: Uint8ClampedArray, behind?: Uint8ClampedArray): void {

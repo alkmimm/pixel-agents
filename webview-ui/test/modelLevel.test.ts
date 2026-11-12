@@ -33,11 +33,10 @@ describe('model level', () => {
     expect(modelLevel('gemini-3', 'xhigh')).toBeUndefined();
   });
 
-  it('gear is one number per tier and top effort, and reads back', () => {
+  it('gear is one number per tier and effort step, and reads back', () => {
     expect(modelGear(undefined)).toBe(0);
     expect(modelGear('gpt-9', 'xhigh')).toBe(0);
-    expect(gearParts(0)).toBeUndefined();
-    expect(gearParts(99)).toBeUndefined();
+    for (const none of [0, 1, 2, -3, 3.5, 15, 99, NaN]) expect(gearParts(none)).toBeUndefined();
     const seen = new Set<number>();
     for (const [model, tier] of [
       ['claude-haiku-5-5', 'haiku'],
@@ -45,16 +44,20 @@ describe('model level', () => {
       ['claude-opus-5-5', 'opus'],
       ['claude-fable-5-2', 'fable'],
     ] as const) {
-      for (const [effort, top] of [
-        ['medium', false],
-        ['xhigh', true],
+      for (const [effort, additions] of [
+        [undefined, 0],
+        ['low', 0],
+        ['medium', 0],
+        ['high', 1],
+        ['xhigh', 2],
+        ['max', 2],
       ] as const) {
         const gear = modelGear(model, effort);
-        expect(gearParts(gear)).toEqual({ tier, top });
+        expect(gearParts(gear)).toEqual({ tier, additions });
         seen.add(gear);
       }
     }
-    expect(seen.size).toBe(8);
+    expect(seen.size).toBe(12);
   });
 
   it('writes the level for a card', () => {

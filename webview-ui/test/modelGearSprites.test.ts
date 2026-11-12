@@ -44,24 +44,30 @@ const front = (palette: number, repeat: number, gear: number) =>
   JSON.stringify(getCharacterSprites(palette, repeat, false, gear).walk[Direction.DOWN][0]);
 
 const MODELS = ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-2'];
-const GEARS = MODELS.flatMap((m) => [modelGear(m, 'medium'), modelGear(m, 'xhigh')]);
+const EFFORTS = ['medium', 'high', 'xhigh'];
+const GEARS = MODELS.flatMap((m) => EFFORTS.map((e) => modelGear(m, e)));
 
-it('every gear lays its tier sheet, and the gem at the top effort', () => {
-  expect(gearArt(0)).toEqual([]);
-  expect(gearArt(undefined)).toEqual([]);
-  expect(gearArt(99)).toEqual([]);
-  for (const model of MODELS) {
-    const [sheet] = gearArt(modelGear(model, 'medium'));
+it('every gear has its own sheet in the wardrobe, and a headgear its hair mask', () => {
+  expect(gearArt(0)).toBeUndefined();
+  expect(gearArt(undefined)).toBeUndefined();
+  expect(gearArt(99)).toBeUndefined();
+  const sheets = GEARS.map((gear) => gearArt(gear)!.sheet);
+  expect(new Set(sheets).size).toBe(GEARS.length);
+  for (const gear of GEARS) {
+    const { sheet, hide } = gearArt(gear)!;
     expect(files.has(sheet), sheet).toBe(true);
-    expect(gearArt(modelGear(model, 'medium'))).toEqual([sheet]);
-    expect(gearArt(modelGear(model, 'xhigh'))).toEqual([sheet, 'gear/gem']);
+    if (hide) expect(files.has(hide), hide).toBe(true);
   }
-  expect(new Set(MODELS.map((m) => gearArt(modelGear(m))[0])).size).toBe(MODELS.length);
+  // The squire is bare-headed; the others cover the hair.
+  expect(MODELS.map((m) => gearArt(modelGear(m))!.hide !== undefined)).toEqual([false, true, true, true]);
+  // No gear art is left over: the wardrobe refuses a PNG it does not expect.
+  const expected = new Set(GEARS.flatMap((g) => Object.values(gearArt(g)!)));
+  expect([...files.keys()].filter((f) => f.startsWith('gear/')).sort()).toEqual([...expected].sort());
 });
 
-it('every tier shows in every frame of every view, so it is told apart seated or walking', () => {
+it('every class shows in every frame of every view, so it is told apart seated or walking', () => {
   for (const model of MODELS) {
-    const img = files.get(gearArt(modelGear(model))[0])!;
+    const img = files.get(gearArt(modelGear(model))!.sheet)!;
     for (let row = 0; row < 3; row++) {
       for (let frame = 0; frame < 8; frame++) {
         let opaque = 0;
@@ -74,6 +80,22 @@ it('every tier shows in every frame of every view, so it is told apart seated or
       }
     }
   }
+});
+
+it('hair is not drawn under a headgear, and is left alone without one', () => {
+  const hairy: CharacterProfile = { ...DEFAULT_CHARACTER_PROFILES[0], hair: 'long' };
+  const bald: CharacterProfile = { ...hairy, hair: undefined };
+  const sheet = (p: CharacterProfile, model: string) =>
+    JSON.stringify([...renderer.sheet(withModelGear(p, modelGear(model)))]);
+  // The top rows of the first front frame: under a helm they are the helm's, hair or no hair.
+  const top = (p: CharacterProfile, model: string) => {
+    const data = renderer.sheet(withModelGear(p, modelGear(model)));
+    return JSON.stringify([...data.subarray(0, 128 * 4 * 7)].filter((_, i) => Math.floor(i / 4) % 128 < 16));
+  };
+  expect(top(hairy, 'claude-opus-5-5')).toBe(top(bald, 'claude-opus-5-5'));
+  expect(top(hairy, 'claude-haiku-5-5')).not.toBe(top(bald, 'claude-haiku-5-5'));
+  // Long hair still shows below the helm.
+  expect(sheet(hairy, 'claude-opus-5-5')).not.toBe(sheet(bald, 'claude-opus-5-5'));
 });
 
 it('each model dresses every character differently', () => {
