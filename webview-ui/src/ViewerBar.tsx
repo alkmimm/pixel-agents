@@ -45,6 +45,7 @@ export interface ViewerPrefs extends ViewerFeatures {
   lifeGreet: boolean;
   lifeHelpers: boolean;
   lifePet: boolean;
+  lifeRobot: boolean;
   gearLevelText: boolean;
   gearPortrait: boolean;
   gearFx: boolean;
@@ -72,6 +73,7 @@ const DEFAULT_PREFS: ViewerPrefs = {
   lifeGreet: true,
   lifeHelpers: true,
   lifePet: true,
+  lifeRobot: true,
   gearLevelText: true,
   gearPortrait: true,
   gearFx: true,
@@ -143,13 +145,24 @@ export const SUB_OPTIONS: Partial<Record<ViewerToggle, SubOption[]>> = {
     { key: 'gearFx', label: 'Efeitos de classe', title: 'Faíscas, reflexo e flecha, de vez em quando, em quem está trabalhando' },
   ],
   life: [
-    { key: 'lifeCoffee', label: 'Pausa para o café', title: 'Quem está parado vai até o café de vez em quando' },
+    {
+      key: 'lifeCoffee',
+      label: 'Pausa para o café',
+      title:
+        'Quem está parado vai tomar um café de vez em quando. Com a máquina de café no escritório: enche a xícara nela, leva até a mesa de centro, bebe e deixa a xícara lá',
+    },
     { key: 'lifeSleep', label: 'Cochilo', title: 'Quem está parado há 20 min dorme na cadeira' },
     { key: 'lifeParty', label: 'Comemoração', title: 'Depois de um turno de 5 min ou mais' },
     { key: 'lifeChat', label: 'Conversa de corredor', title: 'Dois agentes parados perto um do outro' },
     { key: 'lifeGreet', label: 'Cumprimento ao cruzar', title: 'Dois agentes que passam um pelo outro andando' },
     { key: 'lifeHelpers', label: 'Subagentes inquietos', title: 'Pulam ao terminar, conversam com o vizinho e olham em volta' },
     { key: 'lifePet', label: 'Bicho visita quem espera', title: 'Vai até quem espera você há mais tempo' },
+    {
+      key: 'lifeRobot',
+      label: 'Robô da limpeza',
+      title:
+        'Fica ao lado da lixeira e faz uma ronda a cada 5 min, ou assim que a mesa junta 4 xícaras: passa na mesa, recolhe as xícaras e volta',
+    },
   ],
 };
 const SUB_KEYS = Object.values(SUB_OPTIONS).flatMap((subs) => subs.map((s) => s.key));

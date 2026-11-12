@@ -5,10 +5,13 @@ import {
   chatPairs,
   COFFEE_EVERY_MS,
   coffeeChance,
+  coffeeCorner,
   coffeeSpots,
+  drinkingSpots,
   followTurn,
   isSleepy,
   MAX_LOOK_MS,
+  robotRound,
   SLEEP_AFTER_MS,
 } from '../src/viewer/officeLife.js';
 
@@ -69,15 +72,60 @@ describe('office life', () => {
     expect(coffeeSpots(furniture, [{ col: 9, row: 9 }])).toEqual([]);
   });
 
-  it('the coffee machine is a place for coffee too', () => {
-    const machine = [{ type: 'COFFEE_MACHINE', col: 6, row: 1 }];
-    const walkable = [
-      { col: 5, row: 2 },
-      { col: 6, row: 3 },
-      { col: 1, row: 9 },
+  it('a coffee corner: the machine to fill a cup at, the table to leave it on, the robot by the bin', () => {
+    const furniture = [
+      { type: 'COFFEE_MACHINE', col: 5, row: 0 },
+      { type: 'COFFEE_TABLE', col: 3, row: 3 },
+      { type: 'COFFEE_TABLE', col: 20, row: 3 },
+      { type: 'COFFEE', col: 3, row: 4 },
+      { type: 'NEON_COFFEE', col: 3, row: 0 },
+      { type: 'BIN', col: 1, row: 7 },
     ];
-    expect(coffeeSpots(machine, walkable)).toEqual(walkable.slice(0, 2));
-    expect(coffeeSpots([{ type: 'NEON_COFFEE', col: 6, row: 1 }], walkable)).toEqual([]);
+    const walkable = [
+      { col: 4, row: 1 },
+      { col: 6, row: 1 },
+      { col: 2, row: 2 },
+      { col: 2, row: 7 },
+      { col: 19, row: 2 },
+    ];
+    const corner = coffeeCorner(furniture, walkable);
+    expect(corner.machine).toEqual([
+      { col: 4, row: 1 },
+      { col: 6, row: 1 },
+    ]);
+    // The table nearest the machine, not the one across the office.
+    expect(corner.table).toEqual({ at: { col: 3, row: 3 }, spots: [{ col: 2, row: 2 }] });
+    expect(corner.dock).toEqual({ col: 2, row: 7 });
+    expect(drinkingSpots(corner)).toEqual([{ col: 2, row: 2 }]);
+    // The machine is not where one drinks, nor is the sign anything.
+    expect(coffeeSpots([furniture[0], furniture[4]], walkable)).toEqual([]);
+  });
+
+  it('an office with no machine, table or bin has none of it, and the old coffee still works', () => {
+    const corner = coffeeCorner([{ type: 'COFFEE', col: 1, row: 1 }], [{ col: 1, row: 2 }]);
+    expect(corner).toEqual({ machine: [], table: null, sip: [{ col: 1, row: 2 }], dock: null });
+    expect(drinkingSpots(corner)).toEqual([{ col: 1, row: 2 }]);
+    expect(robotRound(corner, [{ col: 1, row: 2 }])).toEqual({ stops: [], cleanAt: null });
+  });
+
+  it('the robot goes to the table first, then over the floor around it', () => {
+    const walkable = [];
+    for (let col = 0; col < 12; col++) walkable.push({ col, row: 5 });
+    const corner = {
+      machine: [],
+      table: { at: { col: 3, row: 3 }, spots: [{ col: 3, row: 5 }] },
+      sip: [],
+      dock: { col: 0, row: 5 },
+    };
+    const round = robotRound(corner, walkable, () => 0);
+    expect(round.cleanAt).toEqual({ col: 3, row: 5 });
+    expect(round.stops[0]).toEqual({ col: 3, row: 5 });
+    expect(round.stops).toHaveLength(3);
+    for (const stop of round.stops.slice(1)) {
+      expect(Math.abs(stop.col - 3)).toBeGreaterThan(0);
+      expect(Math.abs(stop.col - 3)).toBeLessThanOrEqual(4);
+    }
+    expect(new Set(round.stops.map((t) => t.col)).size).toBe(3);
   });
 
   it('idle agents standing close pair up, each in one pair', () => {

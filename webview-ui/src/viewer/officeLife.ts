@@ -2,7 +2,10 @@
  * pixel-agents-secure (local): "Vida no escritório" — small things the
  * characters do that say something true about their agents:
  *
- *   ☕   an idle agent walks to the coffee, stays a moment and goes back
+ *   ☕   an idle agent goes for a coffee: with a coffee machine in the office,
+ *        it fills a cup there, carries it to the coffee table, drinks and
+ *        leaves the cup; without one, it just stands by the coffee a moment
+ *   🤖   a cleaning robot does its round now and then, and takes the cups
  *   Zzz  an agent that finished long ago dozes in its chair
  *   🎉   an agent that just finished a long turn celebrates
  *   …    two idle agents that meet stop for a word
@@ -30,8 +33,6 @@ export const CHAT_SEC = 4;
 export const CHAT_REACH_TILES = 2;
 /** The longest time one look stands for. */
 export const MAX_LOOK_MS = 5_000;
-/** Where there is coffee: the cup on a table, and the machine. */
-const COFFEE_TYPES: ReadonlySet<string> = new Set(['COFFEE', 'COFFEE_MACHINE']);
 /** How far from the coffee (in steps) still counts as "at the coffee". */
 const COFFEE_REACH_TILES = 3;
 
@@ -95,9 +96,19 @@ export function coffeeSpots(
   furniture: ReadonlyArray<{ type: string; col: number; row: number }>,
   walkable: readonly Tile[],
 ): Tile[] {
+  return spotsNear(furniture, walkable, 'COFFEE');
+}
+
+/** Where one stands to use the furniture of a kind (the coffee machine, the
+ *  coffee table): for each, the walkable tiles closest to it. */
+export function spotsNear(
+  furniture: ReadonlyArray<{ type: string; col: number; row: number }>,
+  walkable: readonly Tile[],
+  kind: string,
+): Tile[] {
   const spots = new Map<string, Tile>();
   for (const item of furniture) {
-    if (!COFFEE_TYPES.has(item.type.split(':')[0])) continue;
+    if (item.type.split(':')[0] !== kind) continue;
     const steps = (t: Tile) => Math.abs(t.col - item.col) + Math.abs(t.row - item.row);
     const near = walkable.filter((t) => steps(t) <= COFFEE_REACH_TILES);
     if (near.length === 0) continue;
@@ -105,6 +116,76 @@ export function coffeeSpots(
     for (const t of near) if (steps(t) === closest) spots.set(`${t.col},${t.row}`, t);
   }
   return [...spots.values()];
+}
+
+/** At the machine, a cup takes this long to fill. */
+export const POUR_SEC = 2;
+/** The cleaning robot does its round about this often... */
+export const ROBOT_EVERY_MS = 5 * 60_000;
+/** ...and at once when this many cups wait on the table. */
+export const ROBOT_CUPS_FULL = 4;
+/** How far (in steps) around the table, or its dock, the robot goes over the floor. */
+const ROBOT_REACH_TILES = 4;
+/** The floor stops of a round, besides the table. */
+const ROBOT_FLOOR_STOPS = 2;
+
+/** What the office has of a coffee corner, and where one stands for each part. */
+export interface CoffeeCorner {
+  /** In front of the coffee machine: where a cup is filled. Empty without a machine. */
+  machine: Tile[];
+  /** The coffee table cups are left on (its sprite's tile), and where one stands at it. */
+  table: { at: Tile; spots: Tile[] } | null;
+  /** By the coffee that is furniture (a mug on a table): where one drinks without a table. */
+  sip: Tile[];
+  /** Where the cleaning robot rests: by the bin, else by the machine. */
+  dock: Tile | null;
+}
+
+const stepsBetween = (a: Tile, b: Tile) => Math.abs(a.col - b.col) + Math.abs(a.row - b.row);
+
+export function coffeeCorner(
+  furniture: ReadonlyArray<{ type: string; col: number; row: number }>,
+  walkable: readonly Tile[],
+): CoffeeCorner {
+  const of = (kind: string) => furniture.filter((f) => f.type.split(':')[0] === kind);
+  const machine = spotsNear(furniture, walkable, 'COFFEE_MACHINE');
+  // The table closest to the machine (any table, without one).
+  const from = of('COFFEE_MACHINE')[0];
+  const tables = of('COFFEE_TABLE')
+    .map((t) => ({ at: { col: t.col, row: t.row }, spots: spotsNear([t], walkable, 'COFFEE_TABLE') }))
+    .filter((t) => t.spots.length > 0)
+    .sort((a, b) => (from ? stepsBetween(a.at, from) - stepsBetween(b.at, from) : 0));
+  const dock = spotsNear(furniture, walkable, 'BIN')[0] ?? machine[0] ?? null;
+  return { machine, table: tables[0] ?? null, sip: coffeeSpots(furniture, walkable), dock };
+}
+
+/** Where one drinks: at the table when there is one, else by the coffee on a table. */
+export function drinkingSpots(corner: CoffeeCorner): Tile[] {
+  return corner.table?.spots ?? corner.sip;
+}
+
+/**
+ * A round of the cleaning robot: the table first (where it takes the cups),
+ * then a couple of places on the floor around it. It goes back to its dock by itself.
+ */
+export function robotRound(
+  corner: CoffeeCorner,
+  walkable: readonly Tile[],
+  rand: () => number = Math.random,
+): { stops: Tile[]; cleanAt: Tile | null } {
+  const cleanAt = corner.table?.spots[0] ?? null;
+  const around = cleanAt ?? corner.dock;
+  const floor = around
+    ? walkable.filter((t) => {
+        const d = stepsBetween(t, around);
+        return d > 0 && d <= ROBOT_REACH_TILES;
+      })
+    : [];
+  const stops: Tile[] = cleanAt ? [cleanAt] : [];
+  for (let i = 0; i < ROBOT_FLOOR_STOPS && floor.length > 0; i++) {
+    stops.push(floor.splice(Math.floor(rand() * floor.length), 1)[0]);
+  }
+  return { stops, cleanAt };
 }
 
 /** Pairs of idle agents standing close enough to talk; each agent at most once. */

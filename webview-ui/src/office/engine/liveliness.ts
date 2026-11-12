@@ -64,6 +64,8 @@ export interface Liveliness {
   socialCoolSec: number;
   /** Whether it was working at the last tick (to see a helper finish). */
   wasActive: boolean;
+  /** A cup in its hand, on the way from the coffee machine (viewer/useOfficeLife.ts). */
+  carrying: boolean;
 }
 
 export function startLiveliness(): Liveliness {
@@ -74,6 +76,7 @@ export function startLiveliness(): Liveliness {
     glanceDir: Direction.DOWN,
     socialCoolSec: 0,
     wasActive: false,
+    carrying: false,
   };
 }
 
@@ -252,6 +255,24 @@ export function headTop(state: CharacterState, dir: Direction): number {
   if (dir === Direction.LEFT || dir === Direction.RIGHT) return 5;
   // Seated, a character facing the viewer sits lower in its cell.
   return state === CharacterState.TYPE && dir === Direction.DOWN ? 7 : 2;
+}
+
+const CUP = '#f4f4f4';
+const COFFEE = '#6b3f1d';
+/** The cup a character carries, at its hand, for a head starting at row `top`. */
+export function carriedCupPixels(top: number, dir: Direction): FxPixel[] {
+  const side = dir === Direction.LEFT || dir === Direction.RIGHT;
+  // In front of the body, at the height of the hands.
+  const x = side ? 10 : 7;
+  const y = top + (side ? 13 : 16);
+  return [
+    { x, y, color: CUP },
+    { x: x + 1, y, color: COFFEE },
+    { x: x + 2, y, color: CUP },
+    { x, y: y + 1, color: CUP },
+    { x: x + 1, y: y + 1, color: CUP },
+    { x: x + 2, y: y + 1, color: CUP },
+  ];
 }
 
 /** An effect's pixels at `age` seconds, for a head starting at row `top`. */

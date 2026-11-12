@@ -67,7 +67,8 @@ import type {
 import { CharacterState, TILE_SIZE, TileType } from '../types.js';
 import { getWallInstances, hasWallSprites, wallColorToHex } from '../wallTiles.js';
 import { getCharacterSprite } from './characters.js';
-import { fxPixels, headTop, hopLift } from './liveliness.js';
+import type { SceneExtra } from './coffeeCorner.js';
+import { carriedCupPixels, fxPixels, headTop, hopLift } from './liveliness.js';
 import { renderMatrixEffect } from './matrixEffect.js';
 import { getPetSpriteData } from './petEntity.js';
 import type {
@@ -363,8 +364,17 @@ export function renderScene(
   selectedAgentId: number | null,
   hoveredAgentId: number | null,
   pets: Pet[] = [],
+  extras: readonly SceneExtra[] = [],
 ): void {
   const drawables: ZDrawable[] = [];
+
+  // pixel-agents-secure (local): cups on the coffee table, the cleaning robot (coffeeCorner.ts).
+  for (const extra of extras) {
+    const cached = getCachedSprite(extra.sprite, zoom);
+    const ex = Math.round(offsetX + extra.x * zoom);
+    const ey = Math.round(offsetY + extra.y * zoom);
+    drawables.push({ zY: extra.zY, draw: (c) => c.drawImage(cached, ex, ey) });
+  }
 
   // Furniture
   for (const f of furniture) {
@@ -453,7 +463,11 @@ export function renderScene(
     }
 
     // pixel-agents-secure (local): the effect playing over it (liveliness.ts).
-    const fx = ch.fx ? fxPixels(ch.fx.kind, ch.fx.age, headTop(ch.state, ch.dir)) : [];
+    const top = headTop(ch.state, ch.dir);
+    const fx = [
+      ...(ch.fx ? fxPixels(ch.fx.kind, ch.fx.age, top) : []),
+      ...(ch.carrying ? carriedCupPixels(top, ch.dir) : []),
+    ];
     drawables.push({
       zY: charZY,
       draw: (c) => {
@@ -868,6 +882,7 @@ export function renderFrame(
   showAreas?: boolean,
   activeAreaLabel?: string | null,
   pets?: Pet[],
+  extras?: readonly SceneExtra[],
 ): { offsetX: number; offsetY: number } {
   // Clear
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
@@ -924,6 +939,7 @@ export function renderFrame(
     selectedId,
     hoveredId,
     pets ?? [],
+    extras ?? [],
   );
 
   // Character speech bubbles render in ToolOverlay (DOM, above the labels).

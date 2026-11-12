@@ -389,6 +389,7 @@ function App() {
       party: viewerPrefs.lifeParty,
       chat: viewerPrefs.lifeChat,
       pet: viewerPrefs.lifePet,
+      robot: viewerPrefs.lifeRobot,
     }),
     [viewerPrefs],
   );

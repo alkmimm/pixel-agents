@@ -40,7 +40,9 @@ def machine():
         'l': '#9fe8ff', 's': '#aab4c0', 'k': '#15171c', 'w': '#ffffff', 'b': '#8a5a34',
         'h': '#b07a4a',
     }
-    rows = ['................'] * 9 + [
+    # Drawn high in its two tiles: standing against a wall, its body is over
+    # the wall and its counter ends a little past the wall's foot.
+    rows = ['................'] * 3 + [
         '..oooooooooooo..',
         '..oRRRRRRRRRRo..',
         '..orrrrrrrrrro..',
@@ -63,8 +65,7 @@ def machine():
         '.obbbbbobbbbbbo.',
         '.obbbbbobbbbbbo.',
         '.oooooooooooooo.',
-        '................',
-    ]
+    ] + ['................'] * 7
     return from_text(rows, colors, (16, 32))
 
 

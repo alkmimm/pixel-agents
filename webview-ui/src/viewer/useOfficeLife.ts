@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useRef } from 'react';
 
+import { createRobot, robotIsOut, sendRobot } from '../office/engine/coffeeCorner.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 import type { OfficeLayout, ToolActivity } from '../office/types.js';
 import { CharacterState } from '../office/types.js';
@@ -15,10 +16,16 @@ import {
   chatPairs,
   COFFEE_SIP_SEC,
   coffeeChance,
-  coffeeSpots,
+  type CoffeeCorner,
+  coffeeCorner,
+  drinkingSpots,
   followTurn,
   isSleepy,
   MOOD,
+  POUR_SEC,
+  ROBOT_CUPS_FULL,
+  ROBOT_EVERY_MS,
+  robotRound,
   type TurnMemo,
 } from './officeLife.js';
 
@@ -29,13 +36,21 @@ const CHAT_ONE_IN = 20;
 /** A pet sets off to whoever waits about once in this many looks. */
 const PET_VISIT_ONE_IN = 45;
 const PET_VISIT_MAX_SEC = 40;
+/** The cleaning robot's first round after the option is turned on. */
+const ROBOT_FIRST_MS = 60_000;
+const POUR_HOLD_SLACK_SEC = 3;
 
 type Tile = { col: number; row: number };
 
+/** A coffee trip: to the machine, a cup filled, to the table, a sip. Without a
+ *  machine it starts at 'walk': straight to where one drinks. */
 interface Trip {
   spot: Tile;
-  /** Set once at the coffee: when the sip ends (ms). */
-  sipUntil?: number;
+  stage: 'machine' | 'pour' | 'walk' | 'sip';
+  /** When the pour or the sip ends (ms). */
+  until?: number;
+  /** The table the cup is left on, when it is drunk at one. */
+  table?: Tile;
 }
 
 /** Which of it is on (Opções → Novidades → Vida no escritório, each part its own switch). */
@@ -45,8 +60,17 @@ export interface LifeParts {
   party: boolean;
   chat: boolean;
   pet: boolean;
+  /** The cleaning robot. */
+  robot: boolean;
 }
-const ALL_PARTS: LifeParts = { coffee: true, sleep: true, party: true, chat: true, pet: true };
+const ALL_PARTS: LifeParts = {
+  coffee: true,
+  sleep: true,
+  party: true,
+  chat: true,
+  pet: true,
+  robot: true,
+};
 
 export function useOfficeLife(
   enabled: boolean,
@@ -64,12 +88,23 @@ export function useOfficeLife(
       moods.current.clear();
       return;
     }
+    // What this leaves in the office goes with it.
+    const clearOffice = () => {
+      const os = getOfficeState();
+      os.cups = [];
+      os.robot = null;
+      for (const ch of os.characters.values()) ch.carrying = false;
+    };
     const memos = new Map<number, TurnMemo>();
     const trips = new Map<number, Trip>();
     const petVisits = new Map<string, number>();
-    let spots: Tile[] = [];
+    let corner: CoffeeCorner = { machine: [], table: null, sip: [], dock: null };
     let spotsOf: OfficeLayout | null = null;
     let lastLook = Date.now();
+    // The first round comes soon, so the robot is seen at work.
+    let nextRound = Date.now() + ROBOT_FIRST_MS;
+    const pick = (tiles: readonly Tile[]): Tile | undefined =>
+      tiles[Math.floor(Math.random() * tiles.length)];
 
     const look = () => {
       const os = getOfficeState();
@@ -83,8 +118,9 @@ export function useOfficeLife(
 
       if (os.getLayout() !== spotsOf) {
         spotsOf = os.getLayout();
-        spots = coffeeSpots(spotsOf.furniture, os.walkableTiles);
+        corner = coffeeCorner(spotsOf.furniture, os.walkableTiles);
         trips.clear();
+        clearOffice();
       }
 
       const alive = new Set(ids);
@@ -111,18 +147,52 @@ export function useOfficeLife(
         // A coffee trip under way.
         const trip = trips.get(id);
         if (trip) {
-          const there = ch.tileCol === trip.spot.col && ch.tileRow === trip.spot.row;
-          if (ch.isActive) {
+          const arrived =
+            ch.tileCol === trip.spot.col &&
+            ch.tileRow === trip.spot.row &&
+            ch.state === CharacterState.IDLE;
+          const end = () => {
             trips.delete(id);
-            moods.current.delete(id);
-          } else if (trip.sipUntil !== undefined) {
-            if (now >= trip.sipUntil) trips.delete(id);
-          } else if (there && ch.state === CharacterState.IDLE) {
-            trip.sipUntil = now + COFFEE_SIP_SEC * 1000;
+            ch.carrying = false;
+          };
+          const sip = () => {
+            trip.stage = 'sip';
+            trip.until = now + COFFEE_SIP_SEC * 1000;
             os.holdStill(id, COFFEE_SIP_SEC, true);
             mood(id, MOOD.coffee, COFFEE_SIP_SEC * 1000);
+          };
+          if (ch.isActive) {
+            // Called back to work: the cup is forgotten.
+            end();
+            moods.current.delete(id);
+          } else if (trip.stage === 'sip') {
+            if (now >= (trip.until ?? 0)) {
+              if (ch.carrying && trip.table) os.placeCup(trip.table);
+              end();
+            }
+          } else if (trip.stage === 'pour') {
+            if (now >= (trip.until ?? 0)) {
+              ch.carrying = true;
+              const to = pick(drinkingSpots(corner));
+              if (to && os.sendOnErrand(id, to.col, to.row)) {
+                trip.spot = to;
+                trip.stage = 'walk';
+                trip.table = corner.table?.at;
+              } else {
+                sip(); // nowhere to take it: drunk at the machine
+              }
+            }
+          } else if (arrived) {
+            if (trip.stage === 'machine') {
+              trip.stage = 'pour';
+              trip.until = now + POUR_SEC * 1000;
+              // Held past the pour, so it is still here when the cup is full.
+              os.holdStill(id, POUR_SEC + POUR_HOLD_SLACK_SEC, false);
+            } else {
+              sip();
+            }
           } else if (ch.state !== CharacterState.WALK) {
-            trips.delete(id); // stopped on the way
+            end(); // stopped on the way
           }
           continue;
         }
@@ -138,12 +208,14 @@ export function useOfficeLife(
         }
         if (
           on.coffee &&
-          spots.length > 0 &&
           ch.state !== CharacterState.WALK &&
           Math.random() < coffeeChance(elapsed)
         ) {
-          const spot = spots[Math.floor(Math.random() * spots.length)];
-          if (os.sendOnErrand(id, spot.col, spot.row)) trips.set(id, { spot });
+          const atMachine = corner.machine.length > 0;
+          const spot = pick(atMachine ? corner.machine : drinkingSpots(corner));
+          if (spot && os.sendOnErrand(id, spot.col, spot.row)) {
+            trips.set(id, { spot, stage: atMachine ? 'machine' : 'walk' });
+          }
         }
       }
 
@@ -153,6 +225,22 @@ export function useOfficeLife(
           os.holdStill(id, CHAT_SEC, false);
           mood(id, MOOD.chat, CHAT_SEC * 1000);
         }
+      }
+
+      // The cleaning robot: at its dock, and out on a round now and then, or
+      // at once when the table is full of cups.
+      if (on.robot && corner.dock) {
+        const dock = corner.dock;
+        if (!os.robot || os.robot.dock.col !== dock.col || os.robot.dock.row !== dock.row) {
+          os.robot = createRobot(dock);
+        }
+        const due = now >= nextRound || os.cups.length >= ROBOT_CUPS_FULL;
+        if (due && !robotIsOut(os.robot)) {
+          const round = robotRound(corner, os.walkableTiles);
+          if (sendRobot(os.robot, round.stops, round.cleanAt)) nextRound = now + ROBOT_EVERY_MS;
+        }
+      } else if (os.robot) {
+        os.robot = null;
       }
 
       // A pet that reached whoever it went to see shows its heart.
@@ -178,7 +266,10 @@ export function useOfficeLife(
     };
 
     const timer = setInterval(look, LOOK_MS);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      clearOffice();
+    };
   }, [enabled, getOfficeState]);
 
   return useCallback((id: number) => {

@@ -52,6 +52,16 @@ import {
   type WanderPace,
 } from './characters.js';
 import {
+  coffeeCornerExtras,
+  type Cup,
+  cupOnTable,
+  MAX_CUPS,
+  type Robot,
+  robotIsOut,
+  type SceneExtra,
+  updateRobot,
+} from './coffeeCorner.js';
+import {
   isLively,
   type LivelinessOptions,
   NO_LIVELINESS,
@@ -96,6 +106,8 @@ function ringsAround(home: Tile): (tile: Tile) => number {
     return Math.max(dc, dr) * 1000 + dc + dr;
   };
 }
+
+const NO_EXTRAS: SceneExtra[] = [];
 
 export class OfficeState {
   layout: OfficeLayout;
@@ -182,6 +194,10 @@ export class OfficeState {
   greeter: Character | null = null;
   /** pixel-agents-secure (local): which of liveliness.ts is on (App.tsx, from the options). */
   liveliness: LivelinessOptions = NO_LIVELINESS;
+  /** pixel-agents-secure (local): the cups left on the coffee table and the cleaning
+   *  robot (coffeeCorner.ts; viewer/useOfficeLife.ts decides when). */
+  cups: Cup[] = [];
+  robot: Robot | null = null;
 
   /** World-space point the camera drifts to while the greeter is up
    *  (the bubble overlay recomputes it every frame: the combined center of the
@@ -1459,6 +1475,18 @@ export class OfficeState {
 
   /** Keep an idle, standing agent where it is for `sec` seconds, no more; with
    *  `thenHome`, its next walk is back to its seat. */
+  /** Put a cup on the coffee table at this tile. False when the table is full. */
+  placeCup(table: { col: number; row: number }): boolean {
+    if (this.cups.length >= MAX_CUPS) return false;
+    this.cups = [...this.cups, cupOnTable(table, this.cups.length)];
+    return true;
+  }
+
+  /** The cups and the robot, for the scene. */
+  sceneExtras(): SceneExtra[] {
+    return this.cups.length > 0 || this.robot ? coffeeCornerExtras(this.cups, this.robot) : NO_EXTRAS;
+  }
+
   holdStill(id: number, sec: number, thenHome: boolean): void {
     const ch = this.characters.get(id);
     if (!this.atLeisure(ch) || ch.state !== CharacterState.IDLE) return;
@@ -1515,6 +1543,7 @@ export class OfficeState {
    *  knows to draw smoothly; otherwise it draws at a low rate. */
   hasMotion(): boolean {
     if (this.greeter || this.cameraFollowId !== null) return true;
+    if (this.robot && robotIsOut(this.robot)) return true;
     for (const ch of this.characters.values()) {
       if (ch.state === CharacterState.WALK || ch.matrixEffect || isLively(ch)) return true;
     }
@@ -1595,6 +1624,10 @@ export class OfficeState {
       this.characters.delete(id);
     }
     tickLiveliness(this.characters.values(), dt, this.liveliness);
+    // The robot that finishes at the table takes the cups with it.
+    if (this.robot && updateRobot(this.robot, dt, this.tileMap, this.blockedTiles)) {
+      this.cups = [];
+    }
 
     // A PC turns on when its agent sits down to work, not when the turn starts.
     const lit = this.litWorkstations();
