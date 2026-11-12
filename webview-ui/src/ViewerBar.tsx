@@ -90,7 +90,7 @@ const FEATURE_OPTIONS: Array<{ key: ViewerToggle; label: string; title: string }
     key: 'modelLevel',
     label: 'Nível por modelo',
     title:
-      'Cada personagem ganha a classe do modelo da sessão (Haiku: escudeiro; Sonnet: arqueiro; Opus: cavaleiro; Fable: mago), um enfeite na cabeça no esforço alto e também uma capa no máximo. O nível aparece no cartão e na lista',
+      'Cada personagem ganha a classe do modelo da sessão (Haiku: escudeiro; Sonnet: arqueiro; Opus: cavaleiro; Fable: mago), um enfeite na cabeça no esforço alto e também uma capa no máximo. Quem está trabalhando mostra de vez em quando o efeito da classe. O nível aparece no cartão e na lista',
   },
   {
     key: 'rooms',
@@ -108,7 +108,7 @@ const FEATURE_OPTIONS: Array<{ key: ViewerToggle; label: string; title: string }
     key: 'life',
     label: 'Vida no escritório',
     title:
-      'Pausa para o café, cochilo de quem está parado há 20 min, comemoração depois de um turno longo, conversa de corredor e o bicho visitando quem espera você',
+      'Pausa para o café, cochilo de quem está parado há 20 min, comemoração depois de um turno longo, conversa de corredor, cumprimento de quem se cruza andando, subagentes que conversam e olham em volta, e o bicho visitando quem espera você',
   },
 ];
 
