@@ -1546,8 +1546,9 @@ export class OfficeState {
     const guest = ch.guestSeat;
     if (!guest) return;
     const seat = this.seats.get(guest.uid);
-    if (!seat || ch.isActive) {
-      // Back to work (or the seat is gone): up at once, the usual way to its desk.
+    if (!seat || seat.assigned || ch.isActive) {
+      // Back to work (or the seat is gone, or was given to an agent that
+      // arrived): up at once, the usual way to its desk.
       ch.guestSeat = null;
       if (guest.seated) {
         ch.state = CharacterState.IDLE;

@@ -5,6 +5,7 @@
  * viewer/useOfficeLife.ts ("Vida no escritório"); here is only what moves and
  * what is drawn. Nothing is saved or sent: reloading the page clears the table.
  */
+import { CUP_COLORS } from '../cupColors.js';
 import { findPath } from '../layout/tileMap.js';
 import type { SpriteData, TileType } from '../types.js';
 import { TILE_SIZE } from '../types.js';
@@ -22,9 +23,9 @@ export interface SceneExtra {
 // ── Cups ────────────────────────────────────────────────────────
 
 const _ = '';
-const W = '#f4f4f4';
+const W = CUP_COLORS.cup;
 const S = '#b9c0c8';
-const C = '#6b3f1d';
+const C = CUP_COLORS.coffee;
 /** A cup seen from above, as it stands on the table or is carried. */
 export const CUP_SPRITE: SpriteData = [
   [_, W, W, _],

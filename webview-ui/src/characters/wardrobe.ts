@@ -21,6 +21,7 @@ import {
   type EyeRows,
 } from '../../../core/src/characterProfiles.js';
 import { isRecord } from '../../../core/src/isRecord.js';
+import { MODEL_TIERS, type ModelTier } from '../viewer/modelLevel.js';
 import { SHEET_H, SHEET_W } from './sheet.js';
 
 export interface PartInfo {
@@ -82,8 +83,8 @@ export const PROPS = { glasses: 'props/reading-glasses', paper: 'props/paper' } 
  * over the finished character; and, for a class with headgear, where the character's hair
  * and hat are not drawn under it.
  */
-export const GEAR_CLASSES = ['haiku', 'sonnet', 'opus', 'fable'] as const;
-export type GearClass = (typeof GEAR_CLASSES)[number];
+export const GEAR_CLASSES = MODEL_TIERS;
+export type GearClass = ModelTier;
 const GEAR_HEADGEAR: ReadonlySet<GearClass> = new Set(['sonnet', 'opus', 'fable']);
 export const gearSheetArt = (gear: GearClass, additions: number): string =>
   `gear/${gear}_${additions}`;

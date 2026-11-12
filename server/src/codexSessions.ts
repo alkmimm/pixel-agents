@@ -46,6 +46,8 @@ export const ACTIVE_WINDOW_MS = 10 * 60_000;
 export const TURN_WINDOW_MS = 60 * 60_000;
 const SCAN_INTERVAL_MS = 15_000;
 const POLL_INTERVAL_MS = 2_000;
+/** In `passedOver`: a file that growing will not make ours. */
+const NEVER = -1;
 const ROLLOUT_NAME = /^rollout-[0-9A-Za-z_.:-]{1,120}\.jsonl$/;
 const ID_PATTERN = /^[0-9A-Za-z-]{8,64}$/;
 
@@ -114,7 +116,11 @@ export interface CodexTurn {
   open: boolean;
   /** Tool calls made and not yet answered. */
   calls: number;
+  /** The ids of quiet calls not yet answered: their answers end no shown tool. */
+  quiet?: Set<string>;
 }
+/** How many quiet calls are remembered at once. */
+const MAX_QUIET_CALLS = 64;
 
 /** Tools that are the agent waiting, not working: no activity is shown for them. */
 const QUIET_TOOLS: ReadonlySet<string> = new Set(['sleep', 'wait', 'request_user_input_async']);
@@ -124,8 +130,9 @@ export type CodexEvent = Record<string, unknown>;
 
 /**
  * The events one record stands for, and its effect on the turn. This is the
- * allowlist: of a record only its type, a tool's name and, for `exec`, the
- * command (which the H4 filter then cuts down to program and verb) are read.
+ * allowlist: of a record only its type, a tool's name, a call's id (to pair
+ * a call with its answer; never sent) and, for `exec`, the command (which the
+ * H4 filter then cuts down to program and verb) are read.
  */
 export function eventsOfRecord(record: Record<string, unknown>, turn: CodexTurn): CodexEvent[] {
   const payload = payloadOf(record);
@@ -133,11 +140,13 @@ export function eventsOfRecord(record: Record<string, unknown>, turn: CodexTurn)
     if (payload.type === 'task_started') {
       turn.open = true;
       turn.calls = 0;
+      turn.quiet = undefined;
       return [];
     }
     if (payload.type === 'task_complete') {
       turn.open = false;
       turn.calls = 0;
+      turn.quiet = undefined;
       return [{ hook_event_name: 'Stop' }];
     }
     return [];
@@ -145,7 +154,12 @@ export function eventsOfRecord(record: Record<string, unknown>, turn: CodexTurn)
   if (record.type !== 'response_item') return [];
   if (payload.type === 'custom_tool_call' || payload.type === 'function_call') {
     const name = text(payload.name, 64);
-    if (!name || QUIET_TOOLS.has(name)) return [];
+    if (!name) return [];
+    if (QUIET_TOOLS.has(name)) {
+      const id = text(payload.call_id, 128);
+      if (id && (turn.quiet?.size ?? 0) < MAX_QUIET_CALLS) (turn.quiet ??= new Set()).add(id);
+      return [];
+    }
     turn.open = true;
     turn.calls++;
     // Codex runs commands through `exec`: shown as a shell command is.
@@ -161,7 +175,9 @@ export function eventsOfRecord(record: Record<string, unknown>, turn: CodexTurn)
     return [{ hook_event_name: 'PreToolUse', tool_name: name, tool_input: {} }];
   }
   if (payload.type === 'custom_tool_call_output' || payload.type === 'function_call_output') {
-    if (turn.calls === 0) return []; // the answer to a quiet tool
+    const id = text(payload.call_id, 128);
+    if (id && turn.quiet?.delete(id)) return []; // the answer to a quiet tool
+    if (turn.calls === 0) return []; // to a quiet tool, or to a call not seen
     turn.calls--;
     return [{ hook_event_name: 'PostToolUse' }];
   }
@@ -284,9 +300,11 @@ export class CodexSessions {
           continue;
         }
         if (now - stat.mtimeMs > ACTIVE_WINDOW_MS) continue;
-        // Looked at before and not grown since: still not ours.
-        if (this.passedOver.get(file) === stat.size) continue;
-        await this.adopt(file, stat.size, now);
+        // Looked at before and not grown since (or never to be ours): still not ours.
+        const seen = this.passedOver.get(file);
+        if (seen === stat.size || seen === NEVER) continue;
+        // Idle since it was last written to, not since it was found.
+        await this.adopt(file, stat.size, Math.min(now, stat.mtimeMs));
       }
     }
   }
@@ -309,6 +327,12 @@ export class CodexSessions {
     try {
       const head = await this.readAt(file, 0, Math.min(size, HEADER_MAX_BYTES));
       const end = head.indexOf('\n');
+      if (end < 0 && size >= HEADER_MAX_BYTES) {
+        // A header longer than is read: more of the file will not shorten it.
+        this.passedOver.set(file, NEVER);
+        this.log(`Codex sessions: ${path.basename(file)} left out: its header is too long`);
+        return;
+      }
       header = end > 0 ? headerOf(head.slice(0, end)) : undefined;
       if (header?.threadSource === 'user') {
         const from = Math.max(0, size - TAIL_BYTES);
@@ -381,6 +405,9 @@ export class CodexSessions {
     }
     const skipped = from !== tracked.offset;
     tracked.offset = size;
+    // What was skipped may have ended the turn: it stands as what is read now says.
+    if (skipped) tracked.turn = { open: false, calls: 0 };
+    let stopped = false;
     const lines = (tracked.partial + chunk).split('\n');
     tracked.partial = lines.pop() ?? '';
     if (tracked.partial.length > LINE_MAX_BYTES) tracked.partial = '';
@@ -388,8 +415,12 @@ export class CodexSessions {
     for (const line of lines) {
       const record = parseLine(line);
       if (!record) continue;
-      for (const event of eventsOfRecord(record, tracked.turn)) this.send(tracked, event);
+      for (const event of eventsOfRecord(record, tracked.turn)) {
+        stopped = event.hook_event_name === 'Stop';
+        this.send(tracked, event);
+      }
     }
+    if (skipped && !tracked.turn.open && !stopped) this.send(tracked, { hook_event_name: 'Stop' });
   }
 
   private end(file: string): void {

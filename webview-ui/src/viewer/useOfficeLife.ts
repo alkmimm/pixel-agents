@@ -113,7 +113,10 @@ export function useOfficeLife(
       os.cups = [];
       os.robot = null;
       os.roam = false;
-      for (const ch of os.characters.values()) ch.carrying = false;
+      for (const ch of os.characters.values()) {
+        ch.carrying = false;
+        ch.guestSeat = null;
+      }
     };
     const memos = new Map<number, TurnMemo>();
     const trips = new Map<number, Trip>();
@@ -123,6 +126,9 @@ export function useOfficeLife(
     let lastLook = Date.now();
     // The first round comes soon, so the robot is seen at work.
     let nextRound = Date.now() + ROBOT_FIRST_MS;
+    // A full table calls it at once, but not again right after a round (one
+    // that could not reach the table would otherwise never stop).
+    let fullRoundAfter = 0;
     const pick = <T>(items: readonly T[]): T | undefined =>
       items[Math.floor(Math.random() * items.length)];
 
@@ -295,7 +301,8 @@ export function useOfficeLife(
         if (!os.robot || os.robot.dock.col !== dock.col || os.robot.dock.row !== dock.row) {
           os.robot = createRobot(dock);
         }
-        const due = now >= nextRound || os.cups.length >= ROBOT_CUPS_FULL;
+        const due =
+          now >= nextRound || (os.cups.length >= ROBOT_CUPS_FULL && now >= fullRoundAfter);
         if (due && !robotIsOut(os.robot)) {
           const round = robotRound(corner, os.walkableTiles);
           // Its arms reach for the middle of the table (two tiles a side).
@@ -305,6 +312,7 @@ export function useOfficeLife(
             : null;
           if (sendRobot(os.robot, round.stops, round.cleanAt, reachTo)) {
             nextRound = now + ROBOT_EVERY_MS;
+            fullRoundAfter = now + ROBOT_FIRST_MS;
           }
         }
       } else if (os.robot) {

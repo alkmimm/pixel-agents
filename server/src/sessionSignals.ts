@@ -77,9 +77,12 @@ function observeModel(s: SessionSignals, r: Record<string, unknown>, ownSidechai
   if (r.type !== 'assistant' || (r.isSidechain === true && !ownSidechain)) return;
   const model = (r.message as { model?: unknown } | undefined)?.model;
   if (typeof model !== 'string' || !MODEL_PATTERN.test(model)) return;
-  s.model = model;
   const effort = typeof r.perTurnEffort === 'string' ? r.perTurnEffort : r.effort;
-  s.effort = typeof effort === 'string' && EFFORT_PATTERN.test(effort) ? effort : undefined;
+  // A reply of the same model that names no effort keeps the one known: not
+  // every record of a reply carries it.
+  if (typeof effort === 'string' && EFFORT_PATTERN.test(effort)) s.effort = effort;
+  else if (model !== s.model) s.effort = undefined;
+  s.model = model;
 }
 /** How much of a transcript's end is read once, for an agent adopted mid-session. */
 const SEED_TAIL_BYTES = 256 * 1024;

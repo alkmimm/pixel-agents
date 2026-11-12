@@ -17,6 +17,7 @@
  * Pure but for the characters it changes: `rand` is injected for the tests.
  */
 import { gearParts } from '../../viewer/modelLevel.js';
+import { CUP_COLORS } from '../cupColors.js';
 import { CharacterState, Direction } from '../types.js';
 
 export type FxKind = 'sparks' | 'gleam' | 'arrow' | 'note' | 'dots';
@@ -261,13 +262,14 @@ export function headTop(state: CharacterState, dir: Direction): number {
   return state === CharacterState.TYPE && dir === Direction.DOWN ? 7 : 2;
 }
 
-const CUP = '#f4f4f4';
-const COFFEE = '#6b3f1d';
+const CUP = CUP_COLORS.cup;
+const COFFEE = CUP_COLORS.coffee;
 /** The cup a character carries, at its hand, for a head starting at row `top`. */
 export function carriedCupPixels(top: number, dir: Direction): FxPixel[] {
   const side = dir === Direction.LEFT || dir === Direction.RIGHT;
-  // In front of the body, at the height of the hands.
-  const x = side ? 10 : 7;
+  // In front of the body, at the height of the hands (the cell is 16 wide:
+  // walking left, the front is its left side).
+  const x = dir === Direction.LEFT ? 3 : side ? 10 : 7;
   const y = top + (side ? 13 : 16);
   return [
     { x, y, color: CUP },
