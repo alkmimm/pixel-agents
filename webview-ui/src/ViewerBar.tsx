@@ -49,6 +49,7 @@ export interface ViewerPrefs extends ViewerFeatures {
   lifeGame: boolean;
   lifeRoam: boolean;
   lifePairs: boolean;
+  lifeDebug: boolean;
   gearLevelText: boolean;
   gearPortrait: boolean;
   gearFx: boolean;
@@ -80,6 +81,7 @@ const DEFAULT_PREFS: ViewerPrefs = {
   lifeGame: true,
   lifeRoam: true,
   lifePairs: true,
+  lifeDebug: false,
   gearLevelText: true,
   gearPortrait: true,
   gearFx: true,
@@ -184,6 +186,12 @@ export const SUB_OPTIONS: Partial<Record<ViewerToggle, SubOption[]>> = {
       label: 'Atividades em dupla',
       title:
         'Às vezes quem vai tomar café ou jogar chama um colega parado: vai até ele, os dois se cumprimentam e saem juntos',
+    },
+    {
+      key: 'lifeDebug',
+      label: 'Diagnóstico do motor',
+      title:
+        'Escreve sobre cada boneco o que o motor acha que ele está fazendo e o tile de destino (etapa→coluna,linha), para ver onde uma atividade se perde',
     },
   ],
 };

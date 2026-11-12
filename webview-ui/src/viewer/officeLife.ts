@@ -209,9 +209,14 @@ export function machineFront(
 /** Where one waits for the machine, nearest first: by its front, never beside
  *  the machine itself (a row above the front) nor on the front. */
 export function queueSpots(front: Tile, walkable: readonly Tile[]): Tile[] {
+  // A front with one way in: nobody waits on it, or whoever has its cup could
+  // not come out without walking through the line.
+  const ways = walkable.filter((t) => stepsBetween(t, front) === 1);
+  const door = ways.length === 1 ? ways[0] : null;
   return walkable
     .filter((t) => {
       const d = stepsBetween(t, front);
+      if (door && t.col === door.col && t.row === door.row) return false;
       return t.row >= front.row && d > 0 && d <= QUEUE_REACH_TILES;
     })
     .sort((a, b) => stepsBetween(a, front) - stepsBetween(b, front) || a.row - b.row || a.col - b.col)

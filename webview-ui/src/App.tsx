@@ -403,6 +403,7 @@ function App() {
       game: viewerPrefs.lifeGame,
       roam: viewerPrefs.lifeRoam,
       pairs: viewerPrefs.lifePairs,
+      debug: viewerPrefs.lifeDebug,
     }),
     [viewerPrefs],
   );

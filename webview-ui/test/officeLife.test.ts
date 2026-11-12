@@ -132,6 +132,17 @@ describe('office life', () => {
     // Never the front itself, nor the tiles at the machine's sides.
     expect(line.some((t) => t.row < 2 || (t.col === 5 && t.row === 2))).toBe(false);
     expect(line.length).toBeLessThanOrEqual(QUEUE_SPOTS);
+    // A front with one way in: the line leaves that way free.
+    const boxed = [
+      { col: 5, row: 2 },
+      { col: 6, row: 2 },
+      { col: 7, row: 2 },
+      { col: 6, row: 3 },
+    ];
+    expect(queueSpots({ col: 5, row: 2 }, boxed)).toEqual([
+      { col: 7, row: 2 },
+      { col: 6, row: 3 },
+    ]);
     // No machine, or one with nothing walkable below it: no front.
     expect(machineFront([], walkable)).toBeNull();
     expect(machineFront([machine], [{ col: 4, row: 1 }])).toBeNull();

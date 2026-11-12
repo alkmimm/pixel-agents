@@ -121,6 +121,8 @@ interface Trip {
   plan?: Plan;
   /** It set off as one of a pair. */
   pair?: boolean;
+  /** The pouf kept for it since the invitation (a game for two): nobody else takes it. */
+  reserved?: string;
 }
 
 /** Which of it is on (Opções → Novidades → Vida no escritório, each part its own switch). */
@@ -138,6 +140,8 @@ export interface LifeParts {
   roam: boolean;
   /** Two agents going for a coffee or a game together. */
   pairs: boolean;
+  /** Over each head, what the director has it doing and where to (to see what goes wrong). */
+  debug?: boolean;
 }
 export const ALL_PARTS: LifeParts = {
   coffee: true,
@@ -168,6 +172,7 @@ export class OfficeDirector {
    *  that could not reach the table would otherwise never stop). */
   private fullRoundAfter = 0;
   private wish: { a: number; b: number; plan: Plan } | null = null;
+  private debug = false;
   /** Since when there are cups on the table (ms), for the robot. */
   private cupsSince: number | null = null;
   /** Each idle agent's stroll: since when it stands (ms), how long it stays, and how many
@@ -263,7 +268,16 @@ export class OfficeDirector {
   /** The mood over an agent's head now, if any. */
   moodOf(id: number, now: number): string | undefined {
     const mood = this.moods.get(id);
-    return mood && mood.until > now ? mood.text : undefined;
+    const text = mood && mood.until > now ? mood.text : undefined;
+    if (!this.debug) return text;
+    // Diagnostics: the stage of its trip and the tile it is for, or that it strolls.
+    const trip = this.trips.get(id);
+    if (trip) {
+      const with_ = trip.mate === undefined ? '' : ` +${trip.mate}`;
+      return `${trip.stage}→${trip.spot.col},${trip.spot.row}${with_}`;
+    }
+    const stroll = this.strolls.get(id);
+    return text ?? (stroll ? `passeio ${stroll.left}` : undefined);
   }
 
   /** What an agent is in the middle of (a stage of a trip), if anything. */
@@ -278,6 +292,7 @@ export class OfficeDirector {
 
   /** One look at the office: move every trip on, and start what is due. */
   look(now: number, ids: readonly number[], tools: Record<number, ToolActivity[]>, on: LifeParts): void {
+    this.debug = on.debug === true;
     const os = this.office();
     const elapsed = now - this.lastLook;
     this.lastLook = now;
@@ -378,11 +393,16 @@ export class OfficeDirector {
     const freePoufs = () => {
       const game = corner.game;
       if (!game) return [];
+      // Not one kept for a pair that is still getting together.
+      const kept = new Set<string>();
+      for (const t of trips.values()) if (t.reserved) kept.add(t.reserved);
       return os
         .freeSeats()
         .filter(
           (s) =>
-            game.poufs.some((p) => p.col === s.col && p.row === s.row) && os.seatReachable(s.uid),
+            !kept.has(s.uid) &&
+            game.poufs.some((p) => p.col === s.col && p.row === s.row) &&
+            os.seatReachable(s.uid),
         );
     };
     /** Walk an agent to a tile; one already standing there needs no walk. */
@@ -419,11 +439,13 @@ export class OfficeDirector {
       return true;
     };
     /** Sit an agent on a free pouf by the video game, facing the screen. */
-    const startGame = (id: number, mate?: number): boolean => {
+    const startGame = (id: number, mate?: number, reserved?: string): boolean => {
       const game = corner.game;
       if (!game) return false;
       const sec = mate === undefined ? GAME_SEC : PAIR_GAME_SEC;
-      const pouf = shuffled(freePoufs()).find((s) =>
+      // The pouf kept for it first (its own trip is over by now, so it is free again).
+      const mine = os.freeSeats().filter((s) => s.uid === reserved);
+      const pouf = [...mine, ...shuffled(freePoufs())].find((s) =>
         os.sitAsGuest(id, s.uid, sec, FACING[wayTo(s, game.at)]),
       );
       if (!pouf) return false;
@@ -431,8 +453,8 @@ export class OfficeDirector {
       trips.set(id, { spot: { col: pouf.col, row: pouf.row }, stage: 'to-game', seated: true, ...with_ });
       return true;
     };
-    const start = (id: number, plan: Plan, mate?: number): boolean =>
-      plan === 'coffee' ? startCoffee(id, mate) : startGame(id, mate);
+    const start = (id: number, plan: Plan, mate?: number, reserved?: string): boolean =>
+      plan === 'coffee' ? startCoffee(id, mate) : startGame(id, mate, reserved);
 
     /** Whether an agent is free to be asked along: idle, not asleep, with nothing under way. */
     const freeFor = (other: number): boolean => {
@@ -473,7 +495,9 @@ export class OfficeDirector {
       const B = os.characters.get(b);
       if (!A || !B || a === b || trips.has(a) || !freeFor(b)) return false;
       if (A.isActive || A.state === CharacterState.WALK) return false;
-      if (plan === 'game' && freePoufs().length < 2) return false;
+      // A game for two: a pouf is kept for each from now, so that both get to play.
+      const poufs = plan === 'game' ? shuffled(freePoufs()).slice(0, 2) : [];
+      if (plan === 'game' && poufs.length < 2) return false;
       if (plan === 'coffee' && corner.machine.length === 0 && drinkingSpots(corner).length === 0) {
         return false;
       }
@@ -493,8 +517,21 @@ export class OfficeDirector {
           .find((t) => os.sendOnErrand(a, t.col, t.row));
       }
       if (!spot) return false;
-      trips.set(a, { spot: { col: spot.col, row: spot.row }, stage: 'invite', mate: b, plan });
-      trips.set(b, { spot: there, stage: 'invited', mate: a, plan, until: now + INVITE_MAX_MS });
+      trips.set(a, {
+        spot: { col: spot.col, row: spot.row },
+        stage: 'invite',
+        mate: b,
+        plan,
+        reserved: poufs[0]?.uid,
+      });
+      trips.set(b, {
+        spot: there,
+        stage: 'invited',
+        mate: a,
+        plan,
+        until: now + INVITE_MAX_MS,
+        reserved: poufs[1]?.uid,
+      });
       stay(b, PAIR_HOLD_SEC);
       return true;
     };
@@ -594,7 +631,7 @@ export class OfficeDirector {
             // (when the mate has not set off yet, it sets off alone).
             trips.delete(id);
             const mate = trip.mate;
-            const went = trip.plan !== undefined && start(id, trip.plan, mate);
+            const went = trip.plan !== undefined && start(id, trip.plan, mate, trip.reserved);
             const other = mate === undefined ? undefined : trips.get(mate);
             if (!went && other?.mate === id) other.mate = undefined;
           }
