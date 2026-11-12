@@ -8,87 +8,17 @@
  * comportamento. Lê o estado privado do diretor (`trips`) para classificar
  * por que cada atividade terminou.
  */
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
 import { afterEach, beforeAll, test, vi } from 'vitest';
 
-import {
-  type FurnitureAsset,
-  type FurnitureManifest,
-  flattenManifest,
-  type InheritedProps,
-} from '../../core/src/assets/manifestUtils.js';
 import { robotIsOut } from '../src/office/engine/coffeeCorner.js';
 import { restoreAgent } from '../src/office/engine/existingAgents.js';
 import { OfficeState } from '../src/office/engine/officeState.js';
-import type { LoadedAssetData } from '../src/office/layout/furnitureCatalog.js';
-import { buildDynamicCatalog } from '../src/office/layout/furnitureCatalog.js';
-import { getBlockedTiles } from '../src/office/layout/layoutSerializer.js';
-import type { OfficeLayout } from '../src/office/types.js';
 import { CharacterState, TileType } from '../src/office/types.js';
 import { ALL_PARTS, LOOK_MS, OfficeDirector } from '../src/viewer/officeDirector.js';
 import { coffeeCorner, QUEUE_MAX_MS, queueSpots, robotRound } from '../src/viewer/officeLife.js';
-import { composeOffice, planRooms, type RoomState, sameRooms } from '../src/viewer/projectRooms.js';
+import { loadRealCatalog, plainBase, Rooms } from './compactOffice.js';
 
-const FURNITURE = fileURLToPath(new URL('../public/assets/furniture', import.meta.url));
-
-/** The real catalog, as the server's assetLoader flattens it; sprites are blanks of the right size. */
-beforeAll(() => {
-  const catalog: FurnitureAsset[] = [];
-  for (const dir of fs.readdirSync(FURNITURE, { withFileTypes: true })) {
-    if (!dir.isDirectory()) continue;
-    const file = path.join(FURNITURE, dir.name, 'manifest.json');
-    if (!fs.existsSync(file)) continue;
-    const m = JSON.parse(fs.readFileSync(file, 'utf-8')) as FurnitureManifest;
-    const inherited: InheritedProps = {
-      groupId: m.id,
-      name: m.name,
-      category: m.category,
-      canPlaceOnWalls: m.canPlaceOnWalls,
-      canPlaceOnSurfaces: m.canPlaceOnSurfaces,
-      backgroundTiles: m.backgroundTiles,
-    };
-    if (m.type === 'asset') {
-      catalog.push({
-        id: m.id,
-        name: m.name,
-        label: m.name,
-        category: m.category,
-        file: m.file ?? `${m.id}.png`,
-        width: m.width!,
-        height: m.height!,
-        footprintW: m.footprintW!,
-        footprintH: m.footprintH!,
-        isDesk: m.category === 'desks',
-        canPlaceOnWalls: m.canPlaceOnWalls,
-        canPlaceOnSurfaces: m.canPlaceOnSurfaces,
-        backgroundTiles: m.backgroundTiles,
-        groupId: m.id,
-      });
-    } else {
-      if (m.rotationScheme) inherited.rotationScheme = m.rotationScheme;
-      catalog.push(
-        ...flattenManifest(
-          {
-            type: 'group',
-            groupType: m.groupType as 'rotation' | 'state' | 'animation',
-            rotationScheme: m.rotationScheme,
-            members: m.members!,
-          },
-          inherited,
-        ),
-      );
-    }
-  }
-  const sprites: LoadedAssetData['sprites'] = {};
-  for (const a of catalog) {
-    sprites[a.id] = Array.from({ length: a.height }, () => new Array<string>(a.width).fill(''));
-  }
-  const ok = buildDynamicCatalog({ catalog, sprites });
-  if (!ok) throw new Error('catálogo real não carregou');
-});
+beforeAll(loadRealCatalog);
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -135,68 +65,22 @@ interface PairRec {
   together: boolean;
 }
 
-/** useProjectRooms without React: replan, compose (compact) and apply. */
-class Rooms {
-  plan: RoomState[] = [];
-  origin = { col: 0, row: 0 };
-  first = true;
-  readonly base: OfficeLayout;
-  readonly os: OfficeState;
-  recompositions = 0;
-  constructor(os: OfficeState, base: OfficeLayout) {
-    this.os = os;
-    this.base = base;
-  }
-  /** Returns true when the office was recomposed. */
-  tick(now: number): boolean {
-    const counts = new Map<string, number>();
-    for (const ch of this.os.characters.values()) {
-      if (ch.isSubagent || ch.matrixEffect === 'despawn' || !ch.directoryName) continue;
-      counts.set(ch.directoryName, (counts.get(ch.directoryName) ?? 0) + 1);
-    }
-    const plan = planRooms(this.plan, counts, now);
-    if (!this.first && sameRooms(plan, this.plan)) {
-      this.plan = plan;
-      if (plan.length > 0) this.os.moveIntoRooms(false);
-      return false;
-    }
-    this.plan = plan;
-    const composed = composeOffice(this.base, plan, getBlockedTiles(this.base.furniture), true);
-    const roomAreas: Record<string, string[]> = {};
-    for (const room of composed.rooms) roomAreas[room.project] = [room.label];
-    const shift = this.first
-      ? { col: 0, row: 0 }
-      : { col: composed.origin.col - this.origin.col, row: composed.origin.row - this.origin.row };
-    this.origin = composed.origin;
-    this.os.applyRooms(
-      composed.layout,
-      roomAreas,
-      composed.roomTiles,
-      this.first || !composed.connected,
-      shift,
-    );
-    this.first = false;
-    this.recompositions++;
-    return true;
-  }
-}
-
 /** The lounge as the director sees it, with what it uses marked. */
 function lounge(os: OfficeState): string {
   const layout = os.getLayout();
-  const corner = coffeeCorner(layout.furniture, os.walkableTiles);
+  const corner = coffeeCorner(layout.furniture, os.reachableTiles);
   const walk = new Set(os.walkableTiles.map((t) => `${t.col},${t.row}`));
   const mark = new Map<string, string>();
   const put = (t: Tile | null | undefined, c: string) => {
     if (t) mark.set(`${t.col},${t.row}`, c);
   };
   const front = corner.machine[0];
-  if (front) for (const q of queueSpots(front, os.walkableTiles)) put(q, 'q');
+  if (front) for (const q of queueSpots(front, os.reachableTiles)) put(q, 'q');
   for (const t of corner.table?.spots ?? []) put(t, 't');
   for (const s of os.freeSeats()) put({ col: s.col, row: s.row }, 's');
   put(front, 'F');
   put(corner.dock, 'D');
-  put(robotRound(corner, os.walkableTiles, () => 0).cleanAt, 'C');
+  put(robotRound(corner, os.reachableTiles, () => 0).cleanAt, 'C');
   const lines: string[] = [];
   for (let r = 0; r < Math.min(layout.rows, 16); r++) {
     let line = `${String(r).padStart(2)} `;
@@ -205,14 +89,14 @@ function lounge(os: OfficeState): string {
       const tile = layout.tiles[r * layout.cols + c];
       line +=
         mark.get(k) ??
-        (walk.has(k) ? '.' : tile === TileType.WALL ? '#' : tile === TileType.VOID ? ' ' : 'x');
+        (walk.has(k) ? (os.canReach({ col: c, row: r }) ? '.' : 'o') : tile === TileType.WALL ? '#' : tile === TileType.VOID ? ' ' : 'x');
     }
     lines.push(line);
   }
   return [
-    `front=${JSON.stringify(front)} queue=${JSON.stringify(front ? queueSpots(front, os.walkableTiles) : [])}`,
+    `front=${JSON.stringify(front)} queue=${JSON.stringify(front ? queueSpots(front, os.reachableTiles) : [])}`,
     `table=${JSON.stringify(corner.table)} dock=${JSON.stringify(corner.dock)} game=${JSON.stringify(corner.game)}`,
-    'F frente da máquina, q fila, t lugar em pé da mesa, s assento livre, D doca, C onde o robô limpa, x mobília',
+    'F frente da máquina, q fila, t lugar em pé da mesa, s assento livre, D doca, C onde o robô limpa, x mobília, o chão sem acesso',
     ...lines,
   ].join('\n');
 }
@@ -228,15 +112,7 @@ interface Scenario {
 function run(sc: Scenario): { summary: Record<string, unknown>; map: string } {
   const rng = mulberry32(sc.seed);
   vi.spyOn(Math, 'random').mockImplementation(mulberry32(sc.seed + 1000));
-  const cols = 10;
-  const rows = 10;
-  const base: OfficeLayout = {
-    version: 1,
-    cols,
-    rows,
-    tiles: new Array<TileType>(cols * rows).fill(TileType.FLOOR_1),
-    furniture: [],
-  };
+  const base = plainBase();
   const os = new OfficeState(base);
   const rooms = new Rooms(os, base);
   let now = 1_000_000;
@@ -283,10 +159,8 @@ function run(sc: Scenario): { summary: Record<string, unknown>; map: string } {
       if (ch.state === CharacterState.WALK && last) dest.set(ch.id, { ...last });
     }
     const cupsBefore = os.cups.length;
-    const robotOut = os.robot ? robotIsOut(os.robot) : false;
     os.update(dt);
     if (os.cups.length < cupsBefore) bump('robô: xícaras recolhidas', cupsBefore - os.cups.length);
-    if (os.robot && !robotOut && robotIsOut(os.robot)) bump('robô: saídas');
     for (const ch of os.characters.values()) {
       const d = dest.get(ch.id);
       if (!d || ch.state === CharacterState.WALK) continue;
@@ -311,7 +185,7 @@ function run(sc: Scenario): { summary: Record<string, unknown>; map: string } {
         recomposed = true;
         if (sec > 0) {
           bump('recomposições');
-          bump('recomposição: andando (caminho apagado)', walkers);
+          bump('recomposição: andando no momento', walkers);
           bump('recomposição: em assento de visita', guests);
           bump('recomposição: atividades em curso', tripsBefore);
           bump('recomposição: xícaras na mesa', cups);
@@ -360,7 +234,9 @@ function run(sc: Scenario): { summary: Record<string, unknown>; map: string } {
     const cupsBefore = os.cups.length;
     const relayout = os.getLayout() !== lastLayout;
     lastLayout = os.getLayout();
+    const robotWasOut = os.robot ? robotIsOut(os.robot) : false;
     director.look(now, ids, {}, ALL_PARTS);
+    if (os.robot && !robotWasOut && robotIsOut(os.robot)) bump('robô: saídas');
     const cupDelta = os.cups.length - cupsBefore;
     if (cupDelta > 0) bump('xícaras deixadas na mesa', cupDelta);
     if (cupDelta < 0) bump('xícaras apagadas pela recomposição', -cupDelta);
@@ -370,7 +246,7 @@ function run(sc: Scenario): { summary: Record<string, unknown>; map: string } {
       if (nowTrip === ref) continue;
       const ch = os.characters.get(id);
       let why: string;
-      if (relayout) why = 'recomposição das salas (o diretor limpa tudo)';
+      if (relayout && !nowTrip) why = 'recomposição das salas (o diretor limpou)';
       else if (snap.stage === 'greet') {
         why = nowTrip ? 'saiu em dupla' : `dupla: o ${snap.plan} deste não começou`;
         if (!nowTrip) {
