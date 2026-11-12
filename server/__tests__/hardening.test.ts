@@ -1495,10 +1495,8 @@ describe('H18: Codex sessions are read, never written, and only by the viewer', 
     const withVariable = sourceFiles().filter((file) =>
       fs.readFileSync(file, 'utf-8').includes('PIXEL_AGENTS_CODEX_SESSION_ROOTS'),
     );
-    expect(withVariable.map((file) => path.basename(file)).sort()).toEqual([
-      'codexSessions.ts',
-      'viewer.ts',
-    ]);
+    // Read in one place only: no other code can turn the reader on.
+    expect(withVariable.map((file) => path.basename(file))).toEqual(['codexSessions.ts']);
     expect(read('server/src/codexSessions.ts')).toContain(
       "path.basename(root) !== 'sessions' || path.basename(path.dirname(root)) !== '.codex'",
     );
