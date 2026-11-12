@@ -72,6 +72,8 @@ test('a stroll never ends in the doorway, and nobody is left facing a wall', () 
         idleFor.set(ch.id, 0);
         continue;
       }
+      // Only a stop at the end of a walk: where it first appears is not a stroll's end.
+      if (!idleFor.has(ch.id)) continue;
       const frames = (idleFor.get(ch.id) ?? 0) + 1;
       idleFor.set(ch.id, frames);
       // Settled: the frame after it stopped.
