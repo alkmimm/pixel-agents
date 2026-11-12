@@ -121,12 +121,24 @@ const ROAM_REST_SCALE = 0.35;
 /** ...a stroll has more walks in it... */
 const ROAM_PACE: WanderPace = { ...DEFAULT_PACE, movesMin: 4, movesMax: 8, restScale: ROAM_REST_SCALE };
 const ROOM_ROAM_PACE: WanderPace = {
-  pauseMinSec: ROOM_WANDER_PAUSE_MIN_SEC,
-  pauseMaxSec: ROOM_WANDER_PAUSE_MAX_SEC,
+  // It stays a while where it stopped: one walk after another looks restless.
+  pauseMinSec: 5,
+  pauseMaxSec: 14,
   movesMin: 2,
-  movesMax: 5,
+  movesMax: 4,
   restScale: ROAM_REST_SCALE,
 };
+/** A stroll goes at least this far (in steps), when there is somewhere that far. */
+const STROLL_MIN_STEPS = 3;
+/** This share of the strolls ends beside something (a plant, a table, a desk), facing it. */
+const STROLL_BESIDE_CHANCE = 0.6;
+/** Each way's step, and the order a standing agent tries them to face something. */
+const WAYS: ReadonlyArray<readonly [Direction, number, number]> = [
+  [Direction.UP, 0, -1],
+  [Direction.LEFT, -1, 0],
+  [Direction.RIGHT, 1, 0],
+  [Direction.DOWN, 0, 1],
+];
 /** ...and, with rooms, leaves its own room more often than it stays (0.7 without). */
 const ROAM_HOME_CHANCE = 0.35;
 
@@ -245,6 +257,7 @@ export class OfficeState {
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
     // Pets are built last because they need walkableTiles populated for spawn.
     this.rebuildPetsFromLayout(this.layout);
+    this.indexStandSpots();
   }
 
   /** Rebuild all derived state from a new layout. Reassigns existing characters.
@@ -365,6 +378,7 @@ export class OfficeState {
     // Reconcile pets against the layout roster (handles editor add/remove)
     this.rebuildPetsFromLayout(layout);
     this.indexRoomTiles();
+    this.indexStandSpots();
   }
 
   /** Sort the walkable tiles into each room's and the common ones. */
@@ -400,13 +414,101 @@ export class OfficeState {
   /** Where an idle agent may wander to next: mostly its own room, sometimes
    *  the common office (a coffee, the sofa); never someone else's room. With
    *  no rooms, anywhere. */
-  private wanderPool(ch: Character): Tile[] {
+  private wanderPool(ch: Character, dt = 0): Tile[] {
+    // Only the frame it sets off is the pool worked out: it is asked for every frame.
+    const setsOff =
+      ch.state === CharacterState.IDLE && !ch.isActive && ch.wanderTimer - dt <= 0;
+    if (!setsOff) return this.walkableTiles;
+    return this.strollSpots(this.wanderArea(ch), ch);
+  }
+
+  private wanderArea(ch: Character): Tile[] {
     if (this.roomTiles.size === 0) return this.walkableTiles;
     const label = ch.directoryName ? this.roomAreas[ch.directoryName]?.[0] : undefined;
     const home = label !== undefined ? this.roomTiles.get(label) : undefined;
     const homeChance = this.roam ? ROAM_HOME_CHANCE : ROOM_WANDER_HOME_CHANCE;
     if (home && home.length > 0 && Math.random() < homeChance) return home;
     return this.commonTiles.length > 0 ? this.commonTiles : this.walkableTiles;
+  }
+
+  // ── pixel-agents-secure (local): where a stroll may end ──
+  // Not in a passage (a corridor one tile wide, a doorway, the line between a
+  // room and the corridor): someone standing there is in everybody's way.
+  // Often beside something, facing it, and never where someone else stands or
+  // is going.
+
+  /** Tiles nobody should stop on. */
+  private passage = new Set<string>();
+  /** For a tile beside furniture, the way to face it. */
+  private besideFurniture = new Map<string, Direction>();
+  private strollCache = new WeakMap<Tile[], { stand: Tile[]; beside: Tile[] }>();
+
+  private indexStandSpots(): void {
+    this.passage = new Set();
+    this.besideFurniture = new Map();
+    this.strollCache = new WeakMap();
+    const walk = new Set(this.walkableTiles.map((t) => `${t.col},${t.row}`));
+    const rooms = this.roomTilesOf === this.layout;
+    const labelOf = (col: number, row: number): string | null =>
+      rooms ? (this.roomTileLabels[row * this.layout.cols + col] ?? null) : null;
+    for (const t of this.walkableTiles) {
+      const key = `${t.col},${t.row}`;
+      const open = (dc: number, dr: number) => walk.has(`${t.col + dc},${t.row + dr}`);
+      const narrow = (!open(0, -1) && !open(0, 1)) || (!open(-1, 0) && !open(1, 0));
+      const own = labelOf(t.col, t.row);
+      const doorway = WAYS.some(
+        ([, dc, dr]) => open(dc, dr) && labelOf(t.col + dc, t.row + dr) !== own,
+      );
+      if (narrow || doorway) this.passage.add(key);
+      const beside = WAYS.find(([, dc, dr]) => this.blockedTiles.has(`${t.col + dc},${t.row + dr}`));
+      if (beside) this.besideFurniture.set(key, beside[0]);
+    }
+  }
+
+  /** Of an area, where a stroll of this agent may end now. */
+  private strollSpots(area: Tile[], ch: Character): Tile[] {
+    let spots = this.strollCache.get(area);
+    if (!spots) {
+      const stand = area.filter((t) => !this.passage.has(`${t.col},${t.row}`));
+      const beside = stand.filter((t) => this.besideFurniture.has(`${t.col},${t.row}`));
+      spots = { stand, beside };
+      this.strollCache.set(area, spots);
+    }
+    const kind =
+      spots.beside.length > 0 && Math.random() < STROLL_BESIDE_CHANCE ? spots.beside : spots.stand;
+    if (kind.length === 0) return area;
+    // Where someone else stands, or is going.
+    const taken = new Set<string>();
+    for (const o of this.characters.values()) {
+      if (o === ch) continue;
+      const end = o.state === CharacterState.WALK ? o.path[o.path.length - 1] : undefined;
+      taken.add(end ? `${end.col},${end.row}` : `${o.tileCol},${o.tileRow}`);
+    }
+    const free = kind.filter((t) => !taken.has(`${t.col},${t.row}`));
+    const far = free.filter(
+      (t) => Math.abs(t.col - ch.tileCol) + Math.abs(t.row - ch.tileRow) >= STROLL_MIN_STEPS,
+    );
+    return far.length > 0 ? far : free.length > 0 ? free : kind;
+  }
+
+  /** An agent that just stopped somewhere: it faces what it stands beside, and
+   *  never a wall or a piece of furniture's back with open floor elsewhere. */
+  private settle(ch: Character): void {
+    const beside = this.besideFurniture.get(`${ch.tileCol},${ch.tileRow}`);
+    if (beside !== undefined) {
+      ch.dir = beside;
+      return;
+    }
+    const open = (dir: Direction): boolean => {
+      const way = WAYS.find(([d]) => d === dir);
+      return (
+        way !== undefined &&
+        isWalkable(ch.tileCol + way[1], ch.tileRow + way[2], this.tileMap, this.blockedTiles)
+      );
+    };
+    if (open(ch.dir)) return;
+    const turn = [Direction.DOWN, Direction.LEFT, Direction.RIGHT, Direction.UP].find(open);
+    if (turn !== undefined) ch.dir = turn;
   }
 
   /** Sit a character in a seat at once, with no walk. */
@@ -1580,6 +1682,7 @@ export class OfficeState {
     }
     ch.yieldSec += dt;
     if (ch.yieldSec >= YIELD_PASS_SEC) return false;
+    ch.frame = 1; // standing, not caught mid-stride
     const dest = ch.path[ch.path.length - 1];
     const facingWalker = other.state === CharacterState.WALK && other.id < ch.id;
     if (ch.yieldSec >= YIELD_DETOUR_SEC && !ch.yieldTried && dest !== next && !facingWalker) {
@@ -1596,6 +1699,10 @@ export class OfficeState {
       if (added) this.blockedTiles.delete(key);
       if (around.length > 0 && around.length <= ch.path.length + YIELD_DETOUR_EXTRA_STEPS) {
         ch.path = around;
+      } else {
+        // No way around (a corridor one tile wide): through, with no more waiting.
+        ch.yieldSec = YIELD_PASS_SEC;
+        return false;
       }
     }
     return true;
@@ -1764,17 +1871,20 @@ export class OfficeState {
         // pixel-agents-secure (local): a walker stands while someone is in its way.
         // Temporarily unblock own seat so character can pathfind to it
         if (!this.givesWay(ch, dt)) {
+          const walking = ch.state === CharacterState.WALK;
           this.withOwnSeatUnblocked(ch, () =>
             updateCharacter(
               ch,
               dt,
-              this.wanderPool(ch),
+              this.wanderPool(ch, dt),
               this.seats,
               this.tileMap,
               this.blockedTiles,
               this.pace(),
             ),
           );
+          // Where it stopped, it faces something that makes sense.
+          if (walking && ch.state === CharacterState.IDLE && !ch.isActive) this.settle(ch);
         }
         this.tickGuestSeat(ch);
       }
