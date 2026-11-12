@@ -51,6 +51,7 @@ import {
   updateHelper,
   type WanderPace,
 } from './characters.js';
+import { isLively, type LivelinessOptions, tickLiveliness } from './liveliness.js';
 import { advanceMatrixEffect, startMatrixEffect } from './matrixEffectState.js';
 import { createPet, updatePet } from './petEntity.js';
 import { anchorTile, closestFreeSeat } from './seatPlacement.js';
@@ -174,6 +175,8 @@ export class OfficeState {
    * others.
    */
   greeter: Character | null = null;
+  /** pixel-agents-secure (local): which of liveliness.ts is on (App.tsx, from the options). */
+  liveliness: LivelinessOptions = { gearFx: false, social: false };
 
   /** World-space point the camera drifts to while the greeter is up
    *  (the bubble overlay recomputes it every frame: the combined center of the
@@ -1508,7 +1511,7 @@ export class OfficeState {
   hasMotion(): boolean {
     if (this.greeter || this.cameraFollowId !== null) return true;
     for (const ch of this.characters.values()) {
-      if (ch.state === CharacterState.WALK || ch.matrixEffect) return true;
+      if (ch.state === CharacterState.WALK || ch.matrixEffect || isLively(ch)) return true;
     }
     for (const pet of this.pets) {
       if (pet.state !== PetState.IDLE) return true;
@@ -1555,6 +1558,9 @@ export class OfficeState {
           this.tileMap,
           this.blockedTiles,
         );
+        // pixel-agents-secure (local): an idle helper looking at a neighbour
+        // or around (liveliness.ts) instead of its lead's way.
+        if (ch.glanceSec > 0 && ch.state === CharacterState.IDLE) ch.dir = ch.glanceDir;
       } else {
         // Temporarily unblock own seat so character can pathfind to it
         this.withOwnSeatUnblocked(ch, () =>
@@ -1583,6 +1589,7 @@ export class OfficeState {
     for (const id of toDelete) {
       this.characters.delete(id);
     }
+    tickLiveliness(this.characters.values(), dt, this.liveliness);
 
     // A PC turns on when its agent sits down to work, not when the turn starts.
     const lit = this.litWorkstations();

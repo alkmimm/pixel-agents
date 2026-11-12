@@ -67,6 +67,7 @@ import type {
 import { CharacterState, TILE_SIZE, TileType } from '../types.js';
 import { getWallInstances, hasWallSprites, wallColorToHex } from '../wallTiles.js';
 import { getCharacterSprite } from './characters.js';
+import { fxPixels, headTop, hopLift } from './liveliness.js';
 import { renderMatrixEffect } from './matrixEffect.js';
 import { getPetSpriteData } from './petEntity.js';
 import type {
@@ -400,7 +401,9 @@ export function renderScene(
     const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
     // Anchor at bottom-center of character — round to integer device pixels
     const drawX = Math.round(offsetX + ch.x * zoom - cached.width / 2);
-    const drawY = Math.round(offsetY + (ch.y + sittingOffset) * zoom - cached.height);
+    // pixel-agents-secure (local): a hop lifts it for a moment (liveliness.ts).
+    const lift = hopLift(ch.hopSec);
+    const drawY = Math.round(offsetY + (ch.y + sittingOffset - lift) * zoom - cached.height);
 
     // Sort characters by bottom of their tile (not center) so they render
     // in front of same-row furniture (e.g. chairs) but behind furniture
@@ -449,17 +452,21 @@ export function renderScene(
       });
     }
 
+    // pixel-agents-secure (local): the effect playing over it (liveliness.ts).
+    const fx = ch.fx ? fxPixels(ch.fx.kind, ch.fx.age, headTop(ch.state, ch.dir)) : [];
     drawables.push({
       zY: charZY,
       draw: (c) => {
-        if (alpha === 1) {
-          c.drawImage(cached, drawX, drawY);
-          return;
+        if (alpha !== 1) {
+          c.save();
+          c.globalAlpha = alpha;
         }
-        c.save();
-        c.globalAlpha = alpha;
         c.drawImage(cached, drawX, drawY);
-        c.restore();
+        for (const px of fx) {
+          c.fillStyle = px.color;
+          c.fillRect(drawX + px.x * zoom, drawY + px.y * zoom, zoom, zoom);
+        }
+        if (alpha !== 1) c.restore();
       },
     });
   }

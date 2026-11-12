@@ -32,6 +32,8 @@ FW, FH, FRAMES, ROWS = 16, 32, 8, 3
 FRONT, BACK, SIDE = 0, 1, 2
 VIEWS = (FRONT, BACK, SIDE)
 TYPE1, TYPE2, SEATED = 3, 4, 7
+# The walk cycle's two steps (frames 0 and 2; frame 1 is the pass between them).
+STEP_SWING = {0: -1, 2: 1}
 # Where the head starts in a view's first frame: pieces are placed for it.
 BASE_TOP = {FRONT: 2, BACK: 2, SIDE: 5}
 
@@ -376,6 +378,9 @@ def cape(ramp):
             'oobbo',
             '.ooo.',
         ]),
+        # Walking, its hem swings: these last rows shift a pixel one way on
+        # the first step and the other way on the second.
+        'sway': 4,
     }
 
 
@@ -415,10 +420,11 @@ def stamp(sheet, piece, tops, views=VIEWS):
             dy = tops[view][f] - BASE_TOP[view]
             for x0, y0, rows in blocks:
                 for y, line in enumerate(rows):
+                    swing = STEP_SWING.get(f, 0) if y >= len(rows) - piece.get('sway', 0) else 0
                     for x, ch in enumerate(line):
                         if ch == '.':
                             continue
-                        px, py = x0 + x, y0 + y + dy
+                        px, py = x0 + x + swing, y0 + y + dy
                         if 0 <= px < FW and 0 <= py < FH:
                             sheet.putpixel((f * FW + px, view * FH + py), rgba(piece['colors'][ch]))
 

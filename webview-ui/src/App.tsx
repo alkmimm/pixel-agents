@@ -280,6 +280,11 @@ function App() {
     setModelGearOn(features.modelLevel);
     dressCharacters(getOfficeState().characters.values(), allSignals, features.modelLevel);
   }, [allSignals, features.modelLevel, agents, subagentCharacters]);
+  // pixel-agents-secure (local): class effects at work, greetings in passing
+  // and helpers that fidget (office/engine/liveliness.ts).
+  useEffect(() => {
+    getOfficeState().liveliness = { gearFx: features.modelLevel, social: viewerPrefs.life };
+  }, [features.modelLevel, viewerPrefs.life]);
   useEffect(() => {
     if (!officeReadOnly) return;
     const always = viewerPrefs.labelMode === 'always';

@@ -18,6 +18,7 @@ import { isReadingToolName } from '../toolUtils.js';
 import type { Character, Seat, SpriteData, TileType as TileTypeVal } from '../types.js';
 import { CharacterState, Direction, TILE_SIZE } from '../types.js';
 import { startBlink } from './blink.js';
+import { startLiveliness } from './liveliness.js';
 
 /** Whether a tool should show the reading animation (vs typing). Taxonomy comes
  *  from the active HookProvider via the `providerCapabilities` message. */
@@ -90,6 +91,7 @@ export function createCharacter(
     matrixEffectTimer: 0,
     matrixEffectSeeds: [],
     ...startBlink(),
+    ...startLiveliness(),
     contextTokens: 0,
     maxContextTokens: DEFAULT_MAX_CONTEXT_TOKENS,
   };

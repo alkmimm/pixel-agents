@@ -25,6 +25,7 @@ export type TileType = (typeof TileType)[keyof typeof TileType];
 /** Re-export ColorValue for consumers that import color types from office/types */
 export type { ColorValue } from '../components/ui/types.js';
 import type { ColorValue } from '../components/ui/types.js';
+import type { Liveliness } from './engine/liveliness.js';
 
 export const CharacterState = {
   IDLE: 'idle',
@@ -175,7 +176,7 @@ export interface Blinker {
   blinkShut: number;
 }
 
-export interface Character extends Blinker {
+export interface Character extends Blinker, Liveliness {
   id: number;
   state: CharacterState;
   dir: Direction;

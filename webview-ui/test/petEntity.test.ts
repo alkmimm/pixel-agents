@@ -24,6 +24,7 @@ import {
   PET_WALK_FRAME_DURATION_SEC,
   PET_WANDER_PAUSE_MAX_SEC,
 } from '../src/constants.js';
+import { startLiveliness } from '../src/office/engine/liveliness.js';
 import { createPet, updatePet } from '../src/office/engine/petEntity.js';
 import type { Character, TileType as TileTypeVal } from '../src/office/types.js';
 import { CharacterState, Direction, PetState, TileType } from '../src/office/types.js';
@@ -88,6 +89,7 @@ function makeChar(id: number, col: number, row: number): Character {
     matrixEffectSeeds: [],
     blinkIn: 99,
     blinkShut: 0,
+    ...startLiveliness(),
     contextTokens: 0,
     maxContextTokens: 200_000,
   };
