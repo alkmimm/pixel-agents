@@ -1788,8 +1788,9 @@ export class OfficeState {
   sitAsGuest(id: number, seatUid: string, sec: number, facing: Direction | null = null): boolean {
     const ch = this.characters.get(id);
     const seat = this.seats.get(seatUid);
+    const who = ch as Character | undefined;
     this.guestRefusal = !this.atLeisure(ch)
-      ? `agent busy (${ch ? `state ${ch.state}, active ${ch.isActive}` : 'gone'})`
+      ? `agent busy (${who ? `state ${who.state}, active ${who.isActive}` : 'gone'})`
       : !seat || seat.assigned || !this.freeSeats().some((s) => s.uid === seatUid)
         ? 'seat taken or gone'
         : null;
