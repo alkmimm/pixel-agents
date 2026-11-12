@@ -9,6 +9,7 @@ export interface SeatLike {
   seatCol: number;
   seatRow: number;
   assigned: boolean;
+  leisure?: boolean;
 }
 
 export interface AnchorLike {
@@ -45,7 +46,7 @@ export function closestFreeSeat(
   let best: string | null = null;
   let bestDist = Infinity;
   for (const [uid, seat] of seats) {
-    if (seat.assigned) continue;
+    if (seat.assigned || seat.leisure) continue; // a sofa or a pouf is nobody's seat
     const d = Math.abs(seat.seatCol - col) + Math.abs(seat.seatRow - row);
     if (d < bestDist) {
       best = uid;

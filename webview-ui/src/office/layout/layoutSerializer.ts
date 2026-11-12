@@ -166,6 +166,13 @@ function orientationToFacing(orientation: string): Direction {
 
 /** Generate seats from chair furniture.
  *  Facing priority: 1) chair orientation, 2) adjacent desk, 3) forward (DOWN). */
+/** pixel-agents-secure (local): sofas and poufs are for a break (a coffee, the video
+ *  game), not anybody's desk: the office never gives one to an agent as its seat. */
+export function isLeisureSeat(type: string): boolean {
+  const base = type.split(':')[0];
+  return base === 'POUF' || base.startsWith('SOFA');
+}
+
 export function layoutToSeats(furniture: PlacedFurniture[]): Map<string, Seat> {
   const seats = new Map<string, Seat>();
 
@@ -225,6 +232,7 @@ export function layoutToSeats(furniture: PlacedFurniture[]): Map<string, Seat> {
           seatRow: tileRow,
           facingDir,
           assigned: false,
+          leisure: isLeisureSeat(item.type) || undefined,
         });
         seatCount++;
       }

@@ -133,3 +133,44 @@ test('with roam, a rest in the chair is shorter', () => {
   assert.ok(roaming < usual * 0.5);
   assert.ok(roaming > usual * 0.2);
 });
+
+test('a sofa or a pouf is never given as an agent\'s own seat, and stays free for a break', () => {
+  const entry = (id: string): LoadedAssetData['catalog'][number] => ({
+    id,
+    label: id,
+    category: 'chairs',
+    width: 16,
+    height: 16,
+    footprintW: 1,
+    footprintH: 1,
+    isDesk: false,
+  });
+  const catalog = [entry('TEST_CHAIR'), entry('POUF'), entry('SOFA_SIDE')];
+  assert.ok(
+    buildDynamicCatalog({ catalog, sprites: Object.fromEntries(catalog.map((c) => [c.id, [['c']]])) }),
+  );
+  const cols = 8;
+  const rows = 6;
+  const os = new OfficeState({
+    version: 1,
+    cols,
+    rows,
+    tiles: new Array<TileType>(cols * rows).fill(TileType.FLOOR_1),
+    furniture: [
+      { uid: 'desk', type: 'TEST_CHAIR', col: 6, row: 5 },
+      { uid: 'pouf', type: 'POUF', col: 1, row: 1 },
+      { uid: 'sofa', type: 'SOFA_SIDE:left', col: 2, row: 1 },
+    ],
+  });
+  // Three agents, one chair: the first gets it; the others get no seat rather than a sofa.
+  for (const id of [1, 2, 3]) restoreAgent(os, { id });
+  const seats = [1, 2, 3].map((id) => os.characters.get(id)!.seatId);
+  assert.deepEqual(seats.filter((s) => s !== null && s !== undefined), ['desk']);
+  assert.deepEqual(
+    os.freeSeats().map((s) => s.uid).sort(),
+    ['pouf', 'sofa'],
+  );
+  // And they can still sit there a while.
+  const guest = [1, 2, 3].find((id) => !os.characters.get(id)!.seatId)!;
+  assert.ok(os.sitAsGuest(guest, 'pouf', 5));
+});

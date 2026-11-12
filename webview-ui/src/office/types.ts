@@ -55,6 +55,9 @@ export interface Seat {
   /** Direction character faces when sitting (toward adjacent desk) */
   facingDir: Direction;
   assigned: boolean;
+  /** pixel-agents-secure (local): a sofa or a pouf: a place to sit a while, never
+   *  given to an agent as its own seat by the office (layoutSerializer.ts). */
+  leisure?: boolean;
 }
 
 export interface FurnitureInstance {

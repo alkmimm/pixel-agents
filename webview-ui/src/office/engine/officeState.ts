@@ -620,7 +620,9 @@ export class OfficeState {
       const free: string[] = [];
       for (const [uid, seat] of this.seats) {
         const label = this.seatRoom(uid);
-        if (!seat.assigned && label !== null && labels.includes(label)) free.push(uid);
+        if (!seat.assigned && !seat.leisure && label !== null && labels.includes(label)) {
+          free.push(uid);
+        }
       }
       const target = this.pickFromSeats(free);
       if (!target) continue;
@@ -728,7 +730,8 @@ export class OfficeState {
   private findFreeSeat(directoryName?: string): string | null {
     const freeSeats: string[] = [];
     for (const [uid, seat] of this.seats) {
-      if (!seat.assigned) freeSeats.push(uid);
+      // pixel-agents-secure (local): never a sofa or a pouf (Seat.leisure).
+      if (!seat.assigned && !seat.leisure) freeSeats.push(uid);
     }
     if (freeSeats.length === 0) return null;
 
