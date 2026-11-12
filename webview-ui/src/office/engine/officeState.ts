@@ -456,11 +456,27 @@ export class OfficeState {
   /** pixel-agents-secure (local): whether a seat can be walked up to from the
    *  office: a tile beside it can be reached. */
   seatReachable(uid: string): boolean {
-    const seat = this.seats.get(uid);
-    return (
-      seat !== undefined &&
-      WAYS.some(([, dc, dr]) => this.canReach({ col: seat.seatCol + dc, row: seat.seatRow + dr }))
-    );
+    const first = this.seats.get(uid);
+    if (!first) return false;
+    // A pouf is also reached over the poufs beside it.
+    const seen = new Set<Seat>([first]);
+    const queue = [first];
+    while (queue.length > 0) {
+      const seat = queue.pop()!;
+      for (const [, dc, dr] of WAYS) {
+        const col = seat.seatCol + dc;
+        const row = seat.seatRow + dr;
+        if (this.canReach({ col, row })) return true;
+        if (!seat.low) continue;
+        for (const next of this.seats.values()) {
+          if (next.low && !seen.has(next) && next.seatCol === col && next.seatRow === row) {
+            seen.add(next);
+            queue.push(next);
+          }
+        }
+      }
+    }
+    return false;
   }
 
   /** Sort the walkable tiles into each room's and the common ones. */
@@ -819,9 +835,33 @@ export class OfficeState {
   private withOwnSeatUnblocked<T>(ch: Character, fn: () => T): T {
     const key = this.ownSeatKey(ch);
     if (key) this.blockedTiles.delete(key);
+    // pixel-agents-secure (local): on a pouf, or on the way to one, the poufs
+    // beside it can be stepped over (the one by the wall has no other way).
+    const guest = ch.guestSeat ? this.seats.get(ch.guestSeat.uid) : undefined;
+    const close = guest?.low || this.onLowSeat(ch) ? this.openLowSeats() : null;
     const result = fn();
+    close?.();
     if (key) this.blockedTiles.add(key);
     return result;
+  }
+
+  private onLowSeat(ch: Character): boolean {
+    for (const seat of this.seats.values()) {
+      if (seat.low && seat.seatCol === ch.tileCol && seat.seatRow === ch.tileRow) return true;
+    }
+    return false;
+  }
+
+  /** Open every pouf's tile for a path; the function returned shuts them again. */
+  private openLowSeats(): () => void {
+    const opened: string[] = [];
+    for (const seat of this.seats.values()) {
+      const key = `${seat.seatCol},${seat.seatRow}`;
+      if (seat.low && this.blockedTiles.delete(key)) opened.push(key);
+    }
+    return () => {
+      for (const key of opened) this.blockedTiles.add(key);
+    };
   }
 
   /** pixel-agents-secure (local): the room a seat is in, or null. */
@@ -1798,9 +1838,12 @@ export class OfficeState {
     // A seat's tile is furniture: open for the way there, like one's own chair.
     const key = `${seat.seatCol},${seat.seatRow}`;
     const wasBlocked = this.blockedTiles.delete(key);
+    // To a pouf, over the poufs beside it.
+    const close = seat.low ? this.openLowSeats() : null;
     const path = this.withOwnSeatUnblocked(ch, () =>
       findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles),
     );
+    close?.();
     if (wasBlocked) this.blockedTiles.add(key);
     if (path.length === 0) {
       this.guestRefusal = `no way from ${ch.tileCol},${ch.tileRow} to ${key}`;

@@ -233,6 +233,7 @@ export function layoutToSeats(furniture: PlacedFurniture[]): Map<string, Seat> {
           facingDir,
           assigned: false,
           leisure: isLeisureSeat(item.type) || undefined,
+          low: item.type.split(':')[0] === 'POUF' || undefined,
         });
         seatCount++;
       }

@@ -120,6 +120,37 @@ test('compact office: a game for two, both playing at once', () => {
   assert.ok(together >= 10, `they played together for only ${together}s`);
 });
 
+test('compact office: the pouf by the wall is got to over the other, and left the same way', () => {
+  const { os, director, second } = compact([
+    [1, 'alpha'],
+    [2, 'alpha'],
+  ]);
+  // The poufs are right in front of the video game; one has the wall beside it.
+  const poufs = os.getLayout().furniture.filter((f) => f.type === 'POUF');
+  const tv = os.getLayout().furniture.find((f) => f.type === 'VIDEO_GAME')!;
+  assert.deepEqual(poufs.map((p) => p.col - tv.col).sort(), [0, 1]);
+  director.pairUp(1, 2, 'game');
+  const sat = new Set<string>();
+  for (let s = 0; s < 150; s++) {
+    second();
+    for (const id of [1, 2]) {
+      const guest = os.characters.get(id)!.guestSeat;
+      if (guest?.seated) sat.add(guest.uid);
+    }
+  }
+  assert.equal(sat.size, 2, `only ${[...sat].join(', ')} was sat on`);
+  // Afterwards each walks away: nobody is left on a pouf, with no way out.
+  let away = false;
+  for (let s = 0; s < 300 && !away; s++) {
+    second();
+    away = [1, 2].every((id) => {
+      const ch = os.characters.get(id)!;
+      return !poufs.some((p) => p.col === ch.tileCol && p.row === ch.tileRow);
+    });
+  }
+  assert.ok(away, 'someone never left its pouf');
+});
+
 test('after the greeting, one that cannot set off frees its mate, who goes alone', () => {
   const { os, director, second, trips } = compact([
     [1, 'alpha'],

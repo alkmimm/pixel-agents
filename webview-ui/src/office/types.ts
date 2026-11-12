@@ -58,6 +58,9 @@ export interface Seat {
   /** pixel-agents-secure (local): a sofa or a pouf: a place to sit a while, never
    *  given to an agent as its own seat by the office (layoutSerializer.ts). */
   leisure?: boolean;
+  /** pixel-agents-secure (local): a pouf: low enough to step over on the way to (or
+   *  from) the pouf beside it, even with someone sitting on it. */
+  low?: boolean;
 }
 
 export interface FurnitureInstance {

@@ -370,12 +370,12 @@ function composeCompact(base: OfficeLayout, specs: readonly RoomState[]): Compos
   add('neon-cafe', NEON_SIGN, tableCol, loungeTop - 2);
   add('maquina-cafe', COFFEE_MACHINE, tableCol + 2, loungeTop - 1);
   // The game corner, at the foot of the lounge: the TV on its cabinet (its
-  // upper tile is only picture: one walks behind it) and two poufs facing it,
-  // down and to its left. Not right under it: with the wall on one side and
-  // the lounge's edge below, a pouf there could only be reached over the other.
+  // upper tile is only picture: one walks behind it) and two poufs right in
+  // front of it. The one by the wall is reached over the other: a pouf is low
+  // enough to step over, even with someone on it (Seat.low).
   add('videogame', 'VIDEO_GAME', ROOM_PITCH - 2, loungeBottom - 2);
-  add('pufe-1', 'POUF', ROOM_PITCH - 4, loungeBottom);
-  add('pufe-2', 'POUF', ROOM_PITCH - 3, loungeBottom);
+  add('pufe-1', 'POUF', ROOM_PITCH - 2, loungeBottom);
+  add('pufe-2', 'POUF', ROOM_PITCH - 1, loungeBottom);
   // Not in the corner: there it would close off the floor behind the sofa
   // (and the table's back, where the robot takes the cups).
   add('planta-1', PLANT, 2, loungeTop);
