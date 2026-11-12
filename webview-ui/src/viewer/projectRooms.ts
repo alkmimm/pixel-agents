@@ -361,7 +361,8 @@ function composeCompact(base: OfficeLayout, specs: readonly RoomState[]): Compos
   add('sofa-baixo', 'SOFA_BACK', tableCol, tableRow + 2);
   add('sofa-esq', 'SOFA_SIDE', tableCol - 1, tableRow);
   add('sofa-dir', 'SOFA_SIDE:left', tableCol + 2, tableRow);
-  add('cafe', 'COFFEE', tableCol, tableRow + 1);
+  // No mug on the table that is furniture: the cups on it are the ones the
+  // agents leave, and the robot takes (office/engine/coffeeCorner.ts).
   // The coffee corner (scripts/coffee-corner-art.py): the neon sign hung on
   // the wall over the sofas and, right beside it, the machine standing against
   // the wall (its upper half over the wall, its counter on the lounge's first

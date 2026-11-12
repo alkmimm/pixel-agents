@@ -74,6 +74,9 @@ export interface Liveliness {
   yieldSec: number;
   /** ...and whether it already looked for a way around in this wait. */
   yieldTried: boolean;
+  /** Who steps aside when two meet: the one with less of it (the director gives more
+   *  to whoever is on an errand; an agent called to work has the most). */
+  rightOfWay: number;
 }
 
 export function startLiveliness(): Liveliness {
@@ -88,6 +91,7 @@ export function startLiveliness(): Liveliness {
     guestSeat: null,
     yieldSec: 0,
     yieldTried: false,
+    rightOfWay: 0,
   };
 }
 

@@ -253,7 +253,9 @@ describe('project rooms: the compact office', () => {
     const { layout, connected } = compact([room('alfa', 0)]);
     expect(connected).toBe(true);
     expect(layout.furniture.some((f) => f.uid === 'base-desk')).toBe(false);
-    expect(layout.furniture.some((f) => f.type === 'COFFEE')).toBe(true);
+    // No mug that is furniture: the table's cups are the ones the agents leave.
+    expect(layout.furniture.some((f) => f.type === 'COFFEE')).toBe(false);
+    expect(layout.furniture.some((f) => f.type === 'COFFEE_TABLE')).toBe(true);
     // The coffee corner: the machine and its neon sign, inside the plan.
     for (const type of ['COFFEE_MACHINE', 'NEON_COFFEE']) {
       const item = layout.furniture.find((f) => f.type === type)!;
@@ -299,9 +301,9 @@ describe('project rooms: the compact office', () => {
       room('c', 2),
       room('d', 5, 2),
     ]);
-    const coffee = layout.furniture.find((f) => f.type === 'COFFEE')!;
+    const table = layout.furniture.find((f) => f.type === 'COFFEE_TABLE')!;
     // The tile right of the sofas, on the lounge's middle row.
-    const walk = reachable(layout, 6, coffee.row);
+    const walk = reachable(layout, 6, table.row + 1);
     const seats = seatsOf(layout);
     expect(seats).toHaveLength(4 + 6 + 2 + 4);
     for (const seat of seats) {

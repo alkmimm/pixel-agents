@@ -116,6 +116,8 @@ export const YIELD_DETOUR_SEC = 0.5;
 const YIELD_DETOUR_EXTRA_STEPS = 6;
 /** ...and, still held up after this long, walks through (a corridor one tile wide). */
 export const YIELD_PASS_SEC = 2;
+/** An agent called to work does not step aside for anyone on a break. */
+const ACTIVE_RIGHT_OF_WAY = 10;
 /** pixel-agents-secure (local): with `roam`, a rest in the chair lasts this share of the usual... */
 const ROAM_REST_SCALE = 0.35;
 /** ...a stroll has more walks in it... */
@@ -234,6 +236,11 @@ export class OfficeState {
   /** pixel-agents-secure (local): idle agents leave their desks more (shorter rests,
    *  more walks, further from their own room). */
   roam = false;
+  /** pixel-agents-secure (local): the office's director (viewer/officeDirector.ts)
+   *  decides when and where idle agents stroll, and when they go back to their
+   *  chairs; the engine's own random stroll is off. It still walks them, sits
+   *  them down and stands them up. */
+  directed = false;
 
   /** World-space point the camera drifts to while the greeter is up
    *  (the bubble overlay recomputes it every frame: the combined center of the
@@ -463,6 +470,32 @@ export class OfficeState {
       const beside = WAYS.find(([, dc, dr]) => this.blockedTiles.has(`${t.col + dc},${t.row + dr}`));
       if (beside) this.besideFurniture.set(key, beside[0]);
     }
+  }
+
+  /** How idle agents stroll here: the pauses, and how many walks before a rest. */
+  strollPace(): WanderPace {
+    return this.pace() ?? DEFAULT_PACE;
+  }
+
+  /** Where a stroll of this agent could end now (see strollSpots), or null. */
+  strollSpot(
+    id: number,
+    free: (tile: Tile) => boolean = () => true,
+    rand: () => number = Math.random,
+  ): Tile | null {
+    const ch = this.characters.get(id);
+    if (!ch) return null;
+    const spots = this.strollSpots(this.wanderArea(ch), ch).filter(free);
+    return spots[Math.floor(rand() * spots.length)] ?? null;
+  }
+
+  /** Walk an idle agent back to its own chair, where it sits a while. False
+   *  when it has none, is busy, or there is no way. */
+  sendHome(id: number): boolean {
+    const ch = this.characters.get(id);
+    const seat = ch?.seatId ? this.seats.get(ch.seatId) : undefined;
+    if (!this.atLeisure(ch) || !seat) return false;
+    return this.sendOnErrand(id, seat.seatCol, seat.seatRow);
   }
 
   /** Of an area, where a stroll of this agent may end now. */
@@ -1687,7 +1720,12 @@ export class OfficeState {
     if (ch.yieldSec >= YIELD_PASS_SEC) return false;
     ch.frame = 1; // standing, not caught mid-stride
     const dest = ch.path[ch.path.length - 1];
-    const facingWalker = other.state === CharacterState.WALK && other.id < ch.id;
+    // Of two walkers that meet, the one with less right of way steps aside (the
+    // older agent, between equals); the other waits for it to pass.
+    const right = (c: Character) => (c.isActive ? ACTIVE_RIGHT_OF_WAY : c.rightOfWay);
+    const facingWalker =
+      other.state === CharacterState.WALK &&
+      (right(ch) > right(other) || (right(ch) === right(other) && other.id < ch.id));
     if (ch.yieldSec >= YIELD_DETOUR_SEC && !ch.yieldTried && dest !== next && !facingWalker) {
       ch.yieldTried = true;
       const key = `${next.col},${next.row}`;
@@ -1873,6 +1911,10 @@ export class OfficeState {
       } else {
         // pixel-agents-secure (local): a walker stands while someone is in its way.
         // Temporarily unblock own seat so character can pathfind to it
+        // With a director, an idle agent never sets off by itself.
+        if (this.directed && !ch.isActive && ch.state === CharacterState.IDLE) {
+          ch.wanderTimer = Math.max(ch.wanderTimer, 1);
+        }
         if (!this.givesWay(ch, dt)) {
           const walking = ch.state === CharacterState.WALK;
           this.withOwnSeatUnblocked(ch, () =>

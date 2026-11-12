@@ -13,7 +13,7 @@ import { OfficeState } from '../src/office/engine/officeState.js';
 import type { LoadedAssetData } from '../src/office/layout/furnitureCatalog.js';
 import { buildDynamicCatalog } from '../src/office/layout/furnitureCatalog.js';
 import type { OfficeLayout } from '../src/office/types.js';
-import { TileType } from '../src/office/types.js';
+import { CharacterState, TileType } from '../src/office/types.js';
 import { ALL_PARTS, LOOK_MS, OfficeDirector } from '../src/viewer/officeDirector.js';
 
 type Entry = LoadedAssetData['catalog'][number];
@@ -35,6 +35,7 @@ beforeAll(() => {
     entry('COFFEE_MACHINE', 'misc', 1, 2),
     entry('COFFEE_TABLE', 'misc', 2, 2),
     entry('VIDEO_GAME', 'misc', 1, 2),
+    entry('BIN', 'misc'),
   ];
   const sprites = Object.fromEntries(catalog.map((c) => [c.id, [['x']]]));
   assert.ok(buildDynamicCatalog({ catalog, sprites }));
@@ -61,6 +62,7 @@ function office() {
       { uid: 'tv', type: 'VIDEO_GAME', col: 9, row: 4 },
       { uid: 'pouf-1', type: 'POUF', col: 8, row: 7 },
       { uid: 'pouf-2', type: 'POUF', col: 9, row: 7 },
+      { uid: 'bin', type: 'BIN', col: 0, row: 8 },
     ],
   };
   const os = new OfficeState(layout);
@@ -71,12 +73,14 @@ function office() {
   // rand 0.99: nothing starts by chance; only what the test asks for happens.
   const director = new OfficeDirector(() => os, () => ({ tone: 'idle' as const }), now, () => 0.99);
   /** One second of the office, then one look of the director. */
+  const parts = { ...ALL_PARTS, robot: false, pet: false, chat: false };
+  const ids = [1, 2];
   const second = () => {
     for (let i = 0; i < 15; i++) os.update(1 / 15);
     now += LOOK_MS;
-    director.look(now, [1, 2], {}, { ...ALL_PARTS, robot: false, pet: false, chat: false });
+    director.look(now, ids, {}, parts);
   };
-  return { os, director, second, a: os.characters.get(1)!, b: os.characters.get(2)! };
+  return { os, director, second, parts, ids, a: os.characters.get(1)!, b: os.characters.get(2)! };
 }
 
 test('a coffee for two: one asks, they greet, each fills a cup in turn, they sit apart and leave two cups', () => {
@@ -134,4 +138,35 @@ test('a mate called back to work frees the other at once', () => {
   second();
   assert.equal(director.activityOf(1), undefined);
   assert.equal(director.activityOf(2), undefined);
+});
+
+test('the director walks an idle agent: it strolls from place to place, never by itself', () => {
+  const { os, second, ids } = office();
+  // A third agent with no chair of its own: it stands, so it strolls.
+  restoreAgent(os, { id: 3 });
+  ids.push(3);
+  const c = os.characters.get(3)!;
+  assert.equal(c.seatId ?? null, null);
+  second();
+  assert.equal(os.directed, true);
+  const stops = new Set<string>();
+  for (let s = 0; s < 150; s++) {
+    second();
+    if (c.state === CharacterState.IDLE) stops.add(`${c.tileCol},${c.tileRow}`);
+  }
+  assert.ok(stops.size >= 3, `it stopped at only ${stops.size} places`);
+});
+
+test('the robot takes the cups left on the table', () => {
+  const { os, second, parts } = office();
+  parts.robot = true;
+  second();
+  assert.ok(os.placeCup({ col: 2, row: 4 }));
+  assert.ok(os.placeCup({ col: 2, row: 4 }));
+  let left = os.cups.length;
+  for (let s = 0; s < 240 && left > 0; s++) {
+    second();
+    left = os.cups.length;
+  }
+  assert.equal(left, 0, 'the cups are still on the table');
 });

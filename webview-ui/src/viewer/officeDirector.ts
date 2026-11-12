@@ -34,6 +34,7 @@ import {
   POUR_SEC,
   QUEUE_MAX_MS,
   queueSpots,
+  ROBOT_CUP_WAIT_MS,
   ROBOT_CUPS_FULL,
   ROBOT_EVERY_MS,
   robotRound,
@@ -167,6 +168,13 @@ export class OfficeDirector {
    *  that could not reach the table would otherwise never stop). */
   private fullRoundAfter = 0;
   private wish: { a: number; b: number; plan: Plan } | null = null;
+  /** Since when there are cups on the table (ms), for the robot. */
+  private cupsSince: number | null = null;
+  /** Each idle agent's stroll: since when it stands (ms), how long it stays, and how many
+   *  walks it has left before going back to its chair. */
+  private readonly strolls = new Map<number, { idleSince?: number; pauseMs: number; left: number }>();
+  /** Until when an agent was told to stay where it is (ms). */
+  private readonly heldUntil = new Map<number, number>();
 
   private readonly office: () => OfficeState;
   private readonly statusOf: StatusOf;
@@ -199,9 +207,56 @@ export class OfficeDirector {
     os.cups = [];
     os.robot = null;
     os.roam = false;
+    os.directed = false;
     for (const ch of os.characters.values()) {
       ch.carrying = false;
       ch.guestSeat = null;
+    }
+  }
+
+  private strollOf(id: number): { idleSince?: number; pauseMs: number; left: number } {
+    let stroll = this.strolls.get(id);
+    if (!stroll) {
+      stroll = { pauseMs: 0, left: 0 };
+      this.strolls.set(id, stroll);
+    }
+    return stroll;
+  }
+
+  /**
+   * An idle agent's stroll, one look of it. Resting in its chair, nothing: the
+   * engine stands it up when the rest is over. Standing, it stays a while where
+   * it is, then walks to somewhere that makes sense (officeState.strollSpot)
+   * that nobody else has; after a few walks, back to its chair.
+   */
+  private stroll(os: OfficeState, id: number, now: number, free: (tile: Tile) => boolean): void {
+    const ch = os.characters.get(id);
+    if (!ch) return;
+    const stroll = this.strollOf(id);
+    const pace = os.strollPace();
+    const between = (min: number, max: number) => min + this.rand() * (max - min);
+    if (ch.state !== CharacterState.IDLE) {
+      stroll.idleSince = undefined;
+      if (ch.state === CharacterState.TYPE) {
+        stroll.left = Math.round(between(pace.movesMin, pace.movesMax));
+      }
+      return;
+    }
+    if (stroll.idleSince === undefined) {
+      stroll.idleSince = now;
+      stroll.pauseMs = between(pace.pauseMinSec, pace.pauseMaxSec) * 1000;
+    }
+    if (now < (this.heldUntil.get(id) ?? 0) || now - stroll.idleSince < stroll.pauseMs) return;
+    if (stroll.left <= 0 && ch.seatId && os.sendHome(id)) {
+      stroll.idleSince = undefined;
+      return;
+    }
+    const spot = os.strollSpot(id, free, this.rand);
+    if (spot && os.sendOnErrand(id, spot.col, spot.row)) {
+      stroll.left--;
+      stroll.idleSince = undefined;
+    } else {
+      stroll.idleSince = now; // nowhere to go just now: asked again after another pause
     }
   }
 
@@ -227,6 +282,8 @@ export class OfficeDirector {
     const elapsed = now - this.lastLook;
     this.lastLook = now;
     const { trips, memos, petVisits } = this;
+    // The director is in charge of who strolls where: the engine's own stroll is off.
+    os.directed = true;
     const pick = this.pick;
     const mood = (id: number, text: string, ms: number) =>
       this.moods.set(id, { text, until: now + ms });
@@ -282,6 +339,12 @@ export class OfficeDirector {
     };
     let longestWaiting: { id: number; since: number } | null = null;
     const steps = (a: Tile, b: Tile) => Math.abs(a.col - b.col) + Math.abs(a.row - b.row);
+    /** Keep a standing agent where it is: the director's own strolls wait for it too. */
+    const holdStill = (id: number, sec: number, thenHome: boolean) => {
+      os.holdStill(id, sec, thenHome);
+      this.heldUntil.set(id, now + sec * 1000);
+      if (thenHome) this.strollOf(id).left = 0;
+    };
     const tileOf = (ch: { tileCol: number; tileRow: number }): Tile => ({
       col: ch.tileCol,
       row: ch.tileRow,
@@ -354,7 +417,7 @@ export class OfficeDirector {
     };
     /** Hold an agent where it is (in its chair, or standing) a little longer. */
     const stay = (id: number, sec: number) => {
-      if (!os.holdSeat(id, sec)) os.holdStill(id, sec, false);
+      if (!os.holdSeat(id, sec)) holdStill(id, sec, false);
     };
     /**
      * `a` asks `b` along: `a` walks up to `b`, who stays; they greet, and then
@@ -374,7 +437,7 @@ export class OfficeDirector {
       let spot: Tile | undefined;
       if (A.state === CharacterState.IDLE && steps(here, there) >= 1 && steps(here, there) <= PAIR_REACH_TILES) {
         spot = here; // already beside it
-      os.holdStill(a, PAIR_HOLD_SEC, false);
+      holdStill(a, PAIR_HOLD_SEC, false);
       } else {
         spot = os.walkableTiles
           .filter((t) => {
@@ -406,7 +469,7 @@ export class OfficeDirector {
         t.stage = 'greet';
         t.until = now + GREET_MS;
       }
-      os.holdStill(id, GREET_MS / 1000 + 1, false);
+      holdStill(id, GREET_MS / 1000 + 1, false);
       os.turnTo(id, FACING[wayTo(tileOf(A), tileOf(B))]);
       stay(mate, GREET_MS / 1000 + 1);
       os.turnTo(mate, FACING[wayTo(tileOf(B), tileOf(A))]);
@@ -436,6 +499,8 @@ export class OfficeDirector {
 
       // A coffee trip under way.
       const trip = trips.get(id);
+      // On an errand it is let through; with a cup in its hand, more so.
+      ch.rightOfWay = trip ? (ch.carrying ? 2 : 1) : 0;
       if (trip) {
         // At a seat: sat down in it. At a place to stand: standing there.
         const arrived = trip.seated
@@ -455,7 +520,7 @@ export class OfficeDirector {
           // Seated, it drinks until just before it gets up by itself.
           const sec = trip.seated ? sitSec - 1 : COFFEE_SIP_SEC;
           trip.until = now + sec * 1000;
-          if (!trip.seated) os.holdStill(id, COFFEE_SIP_SEC, true);
+          if (!trip.seated) holdStill(id, COFFEE_SIP_SEC, true);
           mood(id, MOOD.coffee, sec * 1000);
         };
         if (ch.isActive) {
@@ -542,7 +607,7 @@ export class OfficeDirector {
             trip.spot = front;
             trip.stage = 'machine';
           } else {
-            os.holdStill(id, QUEUE_HOLD_SEC, false);
+            holdStill(id, QUEUE_HOLD_SEC, false);
             os.turnTo(id, faceMachine(trip.spot));
           }
         } else if (lostSeat) {
@@ -557,7 +622,7 @@ export class OfficeDirector {
             trip.stage = 'pour';
             trip.until = now + POUR_SEC * 1000;
             // Held past the pour, so it is still here when the cup is full.
-            os.holdStill(id, POUR_SEC + POUR_HOLD_SLACK_SEC, false);
+            holdStill(id, POUR_SEC + POUR_HOLD_SLACK_SEC, false);
             os.turnTo(id, faceMachine(trip.spot));
           } else {
             sip();
@@ -587,12 +652,14 @@ export class OfficeDirector {
         const mate = on.pairs && this.rand() < PAIR_CHANCE ? findMate(id) : undefined;
         if (mate === undefined || !invite(id, mate, plan)) start(id, plan);
       }
+      // With nothing else to do, a stroll now and then, and back to its chair.
+      if (!trips.has(id)) this.stroll(os, id, now, (t) => !claimed(t, id));
     }
 
     for (const [a, b] of chatPairs(standing)) {
       if (!on.chat || trips.has(a) || trips.has(b) || this.rand() >= 1 / CHAT_ONE_IN) continue;
       for (const id of [a, b]) {
-        os.holdStill(id, CHAT_SEC, false);
+        holdStill(id, CHAT_SEC, false);
         mood(id, MOOD.chat, CHAT_SEC * 1000);
       }
     }
@@ -604,8 +671,14 @@ export class OfficeDirector {
       if (!os.robot || os.robot.dock.col !== dock.col || os.robot.dock.row !== dock.row) {
         os.robot = createRobot(dock);
       }
-      const due =
-        now >= this.nextRound || (os.cups.length >= ROBOT_CUPS_FULL && now >= this.fullRoundAfter);
+      // Cups on the table call it: at once when they are a few, and soon when
+      // it is one alone.
+      if (os.cups.length === 0) this.cupsSince = null;
+      else this.cupsSince ??= now;
+      const cupsWait =
+        os.cups.length >= ROBOT_CUPS_FULL ||
+        (this.cupsSince !== null && now - this.cupsSince >= ROBOT_CUP_WAIT_MS);
+      const due = now >= this.nextRound || (cupsWait && now >= this.fullRoundAfter);
       if (due && !robotIsOut(os.robot)) {
         const round = robotRound(corner, os.walkableTiles);
         // Its arms reach for the middle of the table (two tiles a side).

@@ -126,8 +126,10 @@ export function spotsNear(
 export const POUR_SEC = 2;
 /** The cleaning robot does its round about this often... */
 export const ROBOT_EVERY_MS = 5 * 60_000;
-/** ...and at once when this many cups wait on the table. */
-export const ROBOT_CUPS_FULL = 4;
+/** ...at once when this many cups wait on the table... */
+export const ROBOT_CUPS_FULL = 2;
+/** ...and when a cup alone has waited this long. */
+export const ROBOT_CUP_WAIT_MS = 90_000;
 /** How far (in steps) around the table, or its dock, the robot goes over the floor. */
 const ROBOT_REACH_TILES = 4;
 /** The floor stops of a round, besides the table. */

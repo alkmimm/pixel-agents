@@ -167,7 +167,7 @@ export const SUB_OPTIONS: Partial<Record<ViewerToggle, SubOption[]>> = {
       key: 'lifeRobot',
       label: 'Robô da limpeza',
       title:
-        'Fica ao lado da lixeira e faz uma ronda a cada 5 min, ou assim que a mesa junta 4 xícaras: passa na mesa, estica os braços, recolhe as xícaras uma a uma e volta',
+        'Fica ao lado da lixeira e faz uma ronda a cada 5 min, assim que a mesa junta 2 xícaras, ou quando uma xícara espera 1 min e meio: passa na mesa, estica os braços, recolhe as xícaras uma a uma e volta',
     },
     {
       key: 'lifeGame',
