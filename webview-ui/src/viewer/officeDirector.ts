@@ -462,7 +462,7 @@ export class OfficeDirector {
           // Called back to work: the cup is forgotten.
           end();
           this.moods.delete(id);
-        } else if (PAIRING.has(trip.stage) && !paired(id, trip)) {
+        } else if ((trip.stage === 'invite' || trip.stage === 'invited') && !paired(id, trip)) {
           end(); // its mate was called back to work, or gave up
           this.moods.delete(id);
         } else if (trip.stage === 'invited') {
