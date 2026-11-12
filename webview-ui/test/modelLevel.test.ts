@@ -76,6 +76,16 @@ describe('model level', () => {
     expect(lead.gear).toBe(modelGear('claude-opus-5-5', 'xhigh'));
     expect(helper.gear).toBe(lead.gear);
     expect(other.gear).toBe(0);
+    // A helper whose own model is known wears its own class, at its own effort.
+    const own = new Map([[-1, { model: 'claude-sonnet-5-5', effort: 'medium' }]]);
+    dressCharacters([lead, helper, other], signals, true, own);
+    expect(helper.gear).toBe(modelGear('claude-sonnet-5-5', 'medium'));
+    expect(lead.gear).toBe(modelGear('claude-opus-5-5', 'xhigh'));
+    // One whose transcript named no model yet keeps its lead's.
+    dressCharacters([lead, helper, other], signals, true, new Map([[-1, {}]]));
+    expect(helper.gear).toBe(lead.gear);
+    dressCharacters([lead, helper, other], signals, false, own);
+    expect([lead.gear, helper.gear, other.gear]).toEqual([0, 0, 0]);
     dressCharacters([lead, helper, other], signals, false);
     expect([lead.gear, helper.gear, other.gear]).toEqual([0, 0, 0]);
   });

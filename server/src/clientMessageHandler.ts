@@ -48,6 +48,7 @@ import { launchStandaloneAgent } from './terminal/standaloneAgentLauncher.js';
 import type { TerminalSessions } from './terminal/terminalSessions.js';
 import { applyUsageBridgeChoice, usageSnapshotMessages } from './usageLimits.js';
 import { signalsMessage } from './sessionSignals.js';
+import { subagentSignalsMessages } from './fileWatcher.js';
 import { answerConversationRequest } from './viewerConversation.js';
 
 type WsSend = (message: Record<string, unknown>) => void;
@@ -770,6 +771,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   for (const agent of store.values()) {
     if (agent.signals?.sent !== undefined) send(signalsMessage(agent));
   }
+  for (const message of subagentSignalsMessages()) send(message);
 
   // 8b. pixel-agents-secure (local): the viewer's recent activity per agent,
   // after the agents exist. Only labels the office already showed.

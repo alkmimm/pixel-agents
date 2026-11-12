@@ -63,7 +63,9 @@ import {
   sessionTitle,
   setModelGearOn,
   signalBadges,
+  subKey,
   useAllSignals,
+  useSubagentSignals,
   type ViewerFeatures,
 } from './viewer/agentSignals.js';
 import { agentStatusView } from './viewer/agentStatus.js';
@@ -275,11 +277,19 @@ function App() {
     [viewerPrefs],
   );
   const allSignals = useAllSignals();
+  const subSignals = useSubagentSignals();
   // pixel-agents-secure (local): each character in its model's gear.
   useEffect(() => {
     setModelGearOn(partOn(viewerPrefs, 'modelLevel', 'gearPortrait'));
-    dressCharacters(getOfficeState().characters.values(), allSignals, viewerPrefs.modelLevel);
-  }, [allSignals, viewerPrefs, agents, subagentCharacters]);
+    // A sub-agent by its own model, once its transcript names one.
+    const own = new Map(
+      subagentCharacters.flatMap((sub) => {
+        const s = subSignals.get(subKey(sub.parentAgentId, sub.parentToolId));
+        return s ? [[sub.id, s] as const] : [];
+      }),
+    );
+    dressCharacters(getOfficeState().characters.values(), allSignals, viewerPrefs.modelLevel, own);
+  }, [allSignals, subSignals, viewerPrefs, agents, subagentCharacters]);
   // pixel-agents-secure (local): class effects at work, greetings in passing
   // and helpers that fidget (office/engine/liveliness.ts).
   useEffect(() => {

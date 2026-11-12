@@ -316,6 +316,36 @@ describe('background spawns (teams OFF) classified by sidecar name', () => {
     expect(start!.isTeammateSpawn).toBeUndefined();
   });
 
+  it("sends a sub-agent's own model and effort as subagentSignals, and nothing else of its signals", () => {
+    // pixel-agents-secure (local): the sub-agent runs on a smaller model than its lead.
+    seedSidecar({
+      transcriptLines: [
+        JSON.stringify({ type: 'custom-title', customTitle: 'never leaves the watch' }),
+        JSON.stringify({
+          type: 'assistant',
+          isSidechain: true,
+          effort: 'medium',
+          message: { model: 'claude-sonnet-5-5', content: [{ type: 'text', text: 'hello' }] },
+        }),
+      ],
+    });
+    spawnAndLaunch();
+
+    const expected = {
+      type: 'subagentSignals',
+      id: 1,
+      parentToolId: SPAWN_TOOL_ID,
+      model: 'claude-sonnet-5-5',
+      effort: 'medium',
+    };
+    expect(messages.filter((m) => m.type === 'subagentSignals')).toEqual([expected]);
+    // The shadow agent's own agentSignals (titles, mode) never reach the office.
+    expect(messages.some((m) => m.type === 'agentSignals' && m.id !== 1)).toBe(false);
+    expect(JSON.stringify(messages)).not.toContain('never leaves the watch');
+    // A client that connects later gets it too.
+    expect(watch.signalsMessages()).toEqual([expected]);
+  });
+
   it('re-broadcasts the spawn tool flagged runInBackground when the async result lands', () => {
     // The tool_use input OMITS run_in_background on current harnesses, so the
     // original agentToolStart went out unflagged. Without the flagged

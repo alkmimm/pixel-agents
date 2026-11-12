@@ -20,7 +20,9 @@ import {
   idleText,
   sessionTitle,
   signalBadges,
+  subKey,
   useAgentSignals,
+  useSubagentSignals,
   type ViewerFeatures,
 } from './agentSignals.js';
 import { agentStatusView, agentTitle, TONE_COLOR } from './agentStatus.js';
@@ -80,6 +82,7 @@ export function AgentHoverCard({
   const agentId = sub ? sub.parentAgentId : hoveredId;
   const activity = useAgentActivity(agentId);
   const signals = useAgentSignals(agentId);
+  const subSignals = useSubagentSignals();
   const now = Date.now();
 
   const el = containerRef.current;
@@ -120,6 +123,9 @@ export function AgentHoverCard({
   const badges = signalBadges(signals, status, last, features, now);
   const idle = idleText(status, last, features, now);
   const level = features.modelLevel ? levelText(signals?.model, signals?.effort) : undefined;
+  // A sub-agent's own model, when its transcript has named one.
+  const own = sub ? subSignals.get(subKey(sub.parentAgentId, sub.parentToolId)) : undefined;
+  const subLevel = features.modelLevel ? levelText(own?.model, own?.effort) : undefined;
 
   return (
     <div
@@ -143,6 +149,11 @@ export function AgentHoverCard({
         <>
           <span className="text-xs text-text">{sub.label || 'Subtarefa'}</span>
           {subRunning && <span className="text-2xs text-text-muted truncate">{subRunning.status}</span>}
+          {subLevel && (
+            <span className="text-2xs text-text-muted" data-testid="agent-level">
+              {subLevel}
+            </span>
+          )}
           <span className="text-2xs text-text-muted">de {agentTitle(officeState, agentId)}</span>
         </>
       ) : (

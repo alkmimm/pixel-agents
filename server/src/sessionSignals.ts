@@ -15,7 +15,8 @@
  *   input. The input is only hashed (sha256), never kept nor sent.
  * - model, effort: the model id and the reasoning effort Claude Code records
  *   on each reply of the session itself (not a sub-agent's). The office dresses
- *   the character by them (webview-ui/src/viewer/modelLevel.ts).
+ *   the character by them (webview-ui/src/viewer/modelLevel.ts). A sub-agent's
+ *   own, read from its own transcript, reach the office as `subagentSignals`.
  *
  * Nothing here reads tool results' content, prompts, or replies.
  */
@@ -66,9 +67,14 @@ const MODE_PATTERN = /^[A-Za-z]{1,32}$/;
 const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,63}$/;
 const EFFORT_PATTERN = /^[a-z]{1,16}$/;
 
-/** The model and effort of a reply of the session itself (a sub-agent's are its own). */
-function observeModel(s: SessionSignals, r: Record<string, unknown>): void {
-  if (r.type !== 'assistant' || r.isSidechain === true) return;
+/**
+ * The model and effort of a reply of the transcript's own agent. In a session's
+ * transcript a sidechain record is a sub-agent's, not the session's; in a
+ * sub-agent's own transcript (`ownSidechain`, subagentWatch.ts) every reply is
+ * a sidechain record, and is its own.
+ */
+function observeModel(s: SessionSignals, r: Record<string, unknown>, ownSidechain: boolean): void {
+  if (r.type !== 'assistant' || (r.isSidechain === true && !ownSidechain)) return;
   const model = (r.message as { model?: unknown } | undefined)?.model;
   if (typeof model !== 'string' || !MODEL_PATTERN.test(model)) return;
   s.model = model;
@@ -119,7 +125,7 @@ export function observeRecord(agent: AgentState, record: unknown): void {
   }
   if (r.type === 'custom-title') s.title = cleanTitle(r.customTitle) ?? s.title;
   if (r.type === 'ai-title') s.aiTitle = cleanTitle(r.aiTitle) ?? s.aiTitle;
-  observeModel(s, r);
+  observeModel(s, r, isSubagentTranscript(agent));
 
   if (r.type === 'assistant') {
     if (r.error === 'rate_limit') {
@@ -206,8 +212,29 @@ export function seedSignals(agent: AgentState): void {
     }
     if (record.type === 'custom-title') s.title = cleanTitle(record.customTitle) ?? s.title;
     if (record.type === 'ai-title') s.aiTitle = cleanTitle(record.aiTitle) ?? s.aiTitle;
-    observeModel(s, record);
+    observeModel(s, record, isSubagentTranscript(agent));
   }
+}
+
+/** Whether this agent is the watch of a sub-agent's own transcript (subagentWatch.ts). */
+function isSubagentTranscript(agent: AgentState): boolean {
+  return agent.spawnToolUseId !== undefined && agent.leadAgentId !== undefined;
+}
+
+/**
+ * What the office receives about a sub-agent: only the model it runs on and its
+ * effort, keyed like every other subagent* message (lead id, spawn tool id).
+ * Nothing else of a sub-agent's signals leaves its watch. Undefined until its
+ * transcript names a model.
+ */
+export function subagentSignalsMessage(
+  agent: AgentState,
+  leadId: number,
+  parentToolId: string,
+): Record<string, unknown> | undefined {
+  const s = agent.signals;
+  if (!s?.model) return undefined;
+  return { type: 'subagentSignals', id: leadId, parentToolId, model: s.model, effort: s.effort };
 }
 
 /** The message the office receives about an agent's signals. */

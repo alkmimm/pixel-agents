@@ -12,6 +12,7 @@ import {
   REPEAT_THRESHOLD,
   seedSignals,
   signalsMessage,
+  subagentSignalsMessage,
 } from '../src/sessionSignals.js';
 import type { AgentState } from '../src/types.js';
 
@@ -101,6 +102,34 @@ describe('observeRecord', () => {
     // A user record never names the model.
     observeRecord(a, { type: 'user', message: { model: 'claude-sonnet-5-5', content: 'x' } });
     expect(signalsMessage(a).model).toBe('claude-fable-5-2[1m]');
+  });
+
+  it("a sub-agent's own transcript: its sidechain replies are its own, and only model and effort go out", () => {
+    const sub = agentOf({ leadAgentId: 3, spawnToolUseId: 'toolu_spawn' });
+    expect(subagentSignalsMessage(sub, 3, 'toolu_spawn')).toBeUndefined();
+    observeRecord(sub, { type: 'custom-title', customTitle: 'título do subagente' });
+    observeRecord(sub, { type: 'user', permissionMode: 'bypassPermissions', message: { content: 'x' } });
+    observeRecord(sub, {
+      type: 'assistant',
+      isSidechain: true,
+      effort: 'medium',
+      message: { model: 'claude-sonnet-5-5', content: [] },
+    });
+    expect(subagentSignalsMessage(sub, 3, 'toolu_spawn')).toEqual({
+      type: 'subagentSignals',
+      id: 3,
+      parentToolId: 'toolu_spawn',
+      model: 'claude-sonnet-5-5',
+      effort: 'medium',
+    });
+    // The same record in a session's own transcript is someone else's.
+    const lead = agentOf();
+    observeRecord(lead, {
+      type: 'assistant',
+      isSidechain: true,
+      message: { model: 'claude-sonnet-5-5', content: [] },
+    });
+    expect(signalsMessage(lead).model).toBeUndefined();
   });
 });
 

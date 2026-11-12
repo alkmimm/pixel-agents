@@ -72,17 +72,23 @@ export function levelText(model: string | undefined, effort?: string): string | 
   return `Lv. ${level} · ${name}${effort ? ` · ${effort}` : ''}`;
 }
 
+type ModelAndEffort = { model?: string; effort?: string };
+
 /**
- * Put each character in its agent's gear (a sub-agent wears its lead's), or
- * take all gear off when the option is off.
+ * Put each character in its agent's gear, or take all gear off when the option
+ * is off. A sub-agent wears the gear of its own model (`own`, by character id:
+ * a smaller model opened by a larger one is its own class), and its lead's
+ * until its own model is known.
  */
 export function dressCharacters(
   characters: Iterable<{ id: number; parentAgentId: number | null; gear: number }>,
-  signals: ReadonlyMap<number, { model?: string; effort?: string }>,
+  signals: ReadonlyMap<number, ModelAndEffort>,
   on: boolean,
+  own: ReadonlyMap<number, ModelAndEffort> = new Map(),
 ): void {
   for (const ch of characters) {
-    const s = on ? signals.get(ch.parentAgentId ?? ch.id) : undefined;
+    const mine = own.get(ch.id);
+    const s = !on ? undefined : mine?.model ? mine : signals.get(ch.parentAgentId ?? ch.id);
     ch.gear = modelGear(s?.model, s?.effort);
   }
 }

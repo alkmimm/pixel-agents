@@ -625,6 +625,12 @@ export function setTeamProvider(provider: TeamProvider): void {
  *  scanners), unnamed spawns are simply not watched. */
 let subagentWatch: SubagentWatch | null = null;
 
+/** pixel-agents-secure (local): the watched sub-agents' model and effort, for a
+ *  client that connects late (clientMessageHandler.ts). */
+export function subagentSignalsMessages(): Array<Record<string, unknown>> {
+  return subagentWatch?.signalsMessages() ?? [];
+}
+
 /** Register the SubagentWatch that mirrors unnamed background spawns' transcripts. */
 export function setSubagentWatch(watch: SubagentWatch | null): void {
   subagentWatch = watch;

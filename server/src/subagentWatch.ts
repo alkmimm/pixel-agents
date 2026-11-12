@@ -14,7 +14,8 @@
  * like a real agent; this class subscribes to the shadow store's broadcasts
  * and re-emits them on the MAIN store as the existing subagent* messages,
  * keyed to (lead id, spawn tool_use id) — the same key the webview already
- * uses for the Subtask sub-character. No protocol change.
+ * uses for the Subtask sub-character. No protocol change, but for one local
+ * message: `subagentSignals`, the sub-agent's own model and effort.
  */
 
 import type * as fs from 'fs';
@@ -23,6 +24,7 @@ import { createAgentState } from './agentState.js';
 import { AgentStateStore } from './agentStateStore.js';
 import { readNewLines, startFileWatching } from './fileWatcher.js';
 import { pathsMatch } from './pathKey.js';
+import { subagentSignalsMessage } from './sessionSignals.js';
 import { cancelPermissionTimer, cancelWaitingTimer } from './timerManager.js';
 import type { AgentState } from './types.js';
 
@@ -49,6 +51,8 @@ export class SubagentWatch {
    *  Kept here (not read off AgentState) so transcript-parser mutations of the
    *  shadow agent's team fields can never break the translation. */
   private readonly subKeys = new Map<number, { leadId: number; spawnToolUseId: string }>();
+  /** Shadow id → the subagentSignals last sent for it (JSON), to send only changes. */
+  private readonly sentSignals = new Map<number, string>();
   /** Shadow id → tool ids started but not yet done (for toolsClear synthesis). */
   private readonly liveToolIds = new Map<number, Set<string>>();
 
@@ -119,6 +123,18 @@ export class SubagentWatch {
     }
   }
 
+  /** pixel-agents-secure (local): every watched sub-agent's model and effort,
+   *  for a client that connects after they were sent. */
+  signalsMessages(): Array<Record<string, unknown>> {
+    const out: Array<Record<string, unknown>> = [];
+    for (const [id, key] of this.subKeys) {
+      const agent = this.store.get(id);
+      const signals = agent && subagentSignalsMessage(agent, key.leadId, key.spawnToolUseId);
+      if (signals) out.push(signals);
+    }
+    return out;
+  }
+
   dispose(): void {
     for (const id of [...this.subKeys.keys()]) {
       this.remove(id);
@@ -134,6 +150,7 @@ export class SubagentWatch {
     cancelWaitingTimer(id, this.waitingTimers);
     cancelPermissionTimer(id, this.permissionTimers);
     this.subKeys.delete(id);
+    this.sentSignals.delete(id);
     this.liveToolIds.delete(id);
     this.store.delete(id);
   }
@@ -181,6 +198,18 @@ export class SubagentWatch {
       case 'agentStatus': {
         if (message.status === 'waiting') {
           this.finishSubTurn(shadowId, leadId, spawnToolUseId);
+        }
+        break;
+      }
+      case 'agentSignals': {
+        // pixel-agents-secure (local): of a sub-agent's signals, only its own
+        // model and effort go on, and only when they change.
+        const agent = this.store.get(shadowId);
+        const signals = agent && subagentSignalsMessage(agent, leadId, spawnToolUseId);
+        const json = signals ? JSON.stringify(signals) : undefined;
+        if (signals && json !== this.sentSignals.get(shadowId)) {
+          this.sentSignals.set(shadowId, json!);
+          this.mainStore.broadcast(signals);
         }
         break;
       }
