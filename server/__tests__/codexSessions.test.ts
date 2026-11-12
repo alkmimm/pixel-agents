@@ -3,6 +3,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { AgentRuntime } from '../src/agentRuntime.js';
+import { AgentStateStore } from '../src/agentStateStore.js';
 import {
   ACTIVE_WINDOW_MS,
   APPEND_MAX_BYTES,
@@ -13,6 +15,7 @@ import {
   headerOf,
   TURN_WINDOW_MS,
 } from '../src/codexSessions.js';
+import { claudeProvider } from '../src/providers/hook/claude/claude.js';
 import { filterHookPayload } from '../src/providers/hook/claude/hooks/hookPayloadFilter.js';
 
 const SECRET = 'CANARY-NEVER-LEAVES';
@@ -246,5 +249,58 @@ describe('H18: following Codex sessions', () => {
     none.start();
     none.stop();
     expect(events).toEqual([]);
+  });
+});
+
+describe('H18: a Codex session in the office, end to end', () => {
+  it('comes in as "Codex", shows only the program of its command, and leaves when it ends', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pa-codex-e2e-'));
+    const root = path.join(home, '.codex', 'sessions');
+    const day = path.join(root, '2026', '11', '12');
+    fs.mkdirSync(day, { recursive: true });
+    const file = path.join(day, `rollout-2026-11-12T10-00-00-${ID}.jsonl`);
+    const store = new AgentStateStore();
+    const runtime = new AgentRuntime(store, claudeProvider);
+    runtime.watchAllSessions.current = true;
+    const sent: Array<Record<string, unknown>> = [];
+    store.on('broadcast', (m) => sent.push(m as Record<string, unknown>));
+    let now = Date.now();
+    const sessions = new CodexSessions(
+      [root],
+      (event) => runtime.handleHookEvent('codex', filterHookPayload(event)),
+      { now: () => now },
+    );
+    try {
+      fs.writeFileSync(file, header() + started() + complete());
+      await sessions.tick(true);
+      expect(store.size).toBe(1);
+      const agent = [...store.values()][0];
+      expect(agent).toMatchObject({
+        agentName: 'Codex',
+        hooksOnly: true,
+        isExternal: true,
+        jsonlFile: '',
+        directoryName: 'app',
+        sessionId: `codex-${ID}`,
+      });
+
+      fs.appendFileSync(file, started() + noise() + exec(`psql "postgres://u:${SECRET}@db/x" -c "select 1"`));
+      await sessions.tick(false);
+      const tool = sent.find((m) => m.type === 'agentToolStart');
+      expect(tool).toBeDefined();
+      expect(String(tool!.status)).toContain('psql');
+      expect(JSON.stringify(sent)).not.toContain(SECRET);
+
+      fs.appendFileSync(file, execDone() + complete());
+      await sessions.tick(false);
+      now += ACTIVE_WINDOW_MS + 60_000;
+      await sessions.tick(false);
+      expect(store.size).toBe(0);
+      expect(JSON.stringify(sent)).not.toContain(SECRET);
+    } finally {
+      sessions.stop();
+      runtime.dispose();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   });
 });

@@ -1454,6 +1454,63 @@ describe('H16: extra transcript roots are Claude transcript folders, and nothing
   });
 });
 
+describe('H18: Codex sessions are read, never written, and only by the viewer', () => {
+  const read = (rel: string) => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf-8');
+  // Comments say what the module must not do; the code is what is checked.
+  const code = (rel: string) =>
+    read(rel)
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+
+  it('the reader has no way to write, delete or run anything', () => {
+    const src = code('server/src/codexSessions.ts');
+    for (const forbidden of [
+      /writeFile|appendFile|createWriteStream|copyFile|truncate/,
+      /\brm(Sync)?\(|unlink|rename|mkdir|rmdir|symlink|chmod|chown|utimes/,
+      /child_process|\bexec(File|Sync)?\(|\bspawn(Sync)?\(|\bfetch\(|https?\.request|net\.connect/,
+    ]) {
+      expect(src).not.toMatch(forbidden);
+    }
+    // Every file it opens is opened for reading.
+    const opens = src.match(/\.open\([^)]*\)/g) ?? [];
+    expect(opens.length).toBeGreaterThan(0);
+    for (const open of opens) expect(open).toMatch(/,\s*'r'\)$/);
+  });
+
+  it('names no Codex file but the session files', () => {
+    const src = code('server/src/codexSessions.ts');
+    expect(src).not.toMatch(/auth\.json|config\.toml|history\.jsonl|sqlite|hooks\.json/);
+  });
+
+  it('only the viewer starts it, from roots that end in .codex/sessions, through the H4 filter', () => {
+    const importers = sourceFiles().filter(
+      (file) => !file.endsWith('codexSessions.ts') && /from '\.\/codexSessions\.js'/.test(fs.readFileSync(file, 'utf-8')),
+    );
+    expect(importers.map((file) => path.basename(file))).toEqual(['viewer.ts']);
+    const viewer = read('server/src/viewer.ts');
+    expect(viewer).toContain(
+      "(event) => runtime.handleHookEvent('codex', filterHookPayload(event)),",
+    );
+    expect(viewer).toContain('codexSessionRoots(process.env)');
+    const withVariable = sourceFiles().filter((file) =>
+      fs.readFileSync(file, 'utf-8').includes('PIXEL_AGENTS_CODEX_SESSION_ROOTS'),
+    );
+    expect(withVariable.map((file) => path.basename(file)).sort()).toEqual([
+      'codexSessions.ts',
+      'viewer.ts',
+    ]);
+    expect(read('server/src/codexSessions.ts')).toContain(
+      "path.basename(root) !== 'sessions' || path.basename(path.dirname(root)) !== '.codex'",
+    );
+  });
+
+  it('Codex is not a hook provider: nothing can be installed for it, and no route answers for it', async () => {
+    const { hookProviderById, otherAgentProviderById } = await import('../src/providers/index.js');
+    expect(hookProviderById('codex')).toBeUndefined();
+    expect(otherAgentProviderById('codex')).toBeUndefined();
+  });
+});
+
 describe('viewer review fixes (H11, H12, H14)', () => {
   it('H11: the viewer keeps watching every session after a browser connects', async () => {
     const { WebSocket } = await import('ws');
