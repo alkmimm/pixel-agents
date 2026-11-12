@@ -1586,6 +1586,12 @@ export class OfficeState {
     return this.cups.length > 0 || this.robot ? coffeeCornerExtras(this.cups, this.robot) : NO_EXTRAS;
   }
 
+  /** Turn an idle, standing agent to face a way (the machine it waits for). */
+  turnTo(id: number, dir: Direction): void {
+    const ch = this.characters.get(id);
+    if (this.atLeisure(ch) && ch.state === CharacterState.IDLE) ch.dir = dir;
+  }
+
   holdStill(id: number, sec: number, thenHome: boolean): void {
     const ch = this.characters.get(id);
     if (!this.atLeisure(ch) || ch.state !== CharacterState.IDLE) return;

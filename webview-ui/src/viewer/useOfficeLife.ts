@@ -26,6 +26,8 @@ import {
   isSleepy,
   MOOD,
   POUR_SEC,
+  QUEUE_MAX_MS,
+  queueSpots,
   ROBOT_CUPS_FULL,
   ROBOT_EVERY_MS,
   robotRound,
@@ -57,7 +59,10 @@ type Tile = { col: number; row: number };
  *  machine it starts at 'walk': straight to where one drinks. */
 interface Trip {
   spot: Tile;
-  stage: 'machine' | 'pour' | 'walk' | 'sip' | 'to-game' | 'play';
+  stage: 'queue' | 'machine' | 'pour' | 'walk' | 'sip' | 'to-game' | 'play';
+  /** Waiting for the machine: its turn (lower goes first) and since when (ms). */
+  turn?: number;
+  queuedAt?: number;
   /** It goes to (or is in) a seat for this, not a place to stand. */
   seated?: boolean;
   /** When the pour or the sip ends (ms). */
@@ -123,6 +128,11 @@ export function useOfficeLife(
     const petVisits = new Map<string, number>();
     let corner: CoffeeCorner = { machine: [], table: null, sip: [], dock: null, game: null };
     let spotsOf: OfficeLayout | null = null;
+    /** The machine's own tile, to face it. */
+    let machineAt: Tile | null = null;
+    let nextTurn = 0;
+    /** While one waits its turn, it is held this long at each look. */
+    const QUEUE_HOLD_SEC = 3;
     let lastLook = Date.now();
     // The first round comes soon, so the robot is seen at work.
     let nextRound = Date.now() + ROBOT_FIRST_MS;
@@ -145,6 +155,8 @@ export function useOfficeLife(
       if (os.getLayout() !== spotsOf) {
         spotsOf = os.getLayout();
         corner = coffeeCorner(spotsOf.furniture, os.walkableTiles);
+        const m = spotsOf.furniture.find((f) => f.type.split(':')[0] === 'COFFEE_MACHINE');
+        machineAt = m ? { col: m.col, row: m.row } : null;
         trips.clear();
         clearOffice();
       }
@@ -156,6 +168,36 @@ export function useOfficeLife(
       for (const id of [...moods.current.keys()]) if (!alive.has(id)) moods.current.delete(id);
 
       const standing: Array<{ id: number; col: number; row: number }> = [];
+      // Conflicts: who else is at, or on the way to, a place.
+      const at = (t: Tile, col: number, row: number) => t.col === col && t.row === row;
+      /** Someone else's trip ends at this tile, or someone else stands on it. */
+      const claimed = (tile: Tile, self: number): boolean => {
+        for (const [other, t] of trips) {
+          if (other !== self && at(tile, t.spot.col, t.spot.row)) return true;
+        }
+        for (const other of os.characters.values()) {
+          if (other.id === self || other.state === CharacterState.WALK) continue;
+          if (at(tile, other.tileCol, other.tileRow)) return true;
+        }
+        return false;
+      };
+      /** Someone else is at the machine, or on the way to it for a cup. */
+      const machineBusy = (self: number): boolean => {
+        for (const [other, t] of trips) {
+          if (other !== self && (t.stage === 'machine' || t.stage === 'pour')) return true;
+        }
+        return corner.machine.some((front) => claimed(front, self));
+      };
+      const faceMachine = (from: Tile) =>
+        machineAt ? FACING[wayTo(from, machineAt)] : Direction.UP;
+      const shuffled = <T>(items: readonly T[]): T[] => {
+        const out = [...items];
+        for (let i = out.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [out[i], out[j]] = [out[j], out[i]];
+        }
+        return out;
+      };
       let longestWaiting: { id: number; since: number } | null = null;
 
       for (const id of ids) {
@@ -212,11 +254,16 @@ export function useOfficeLife(
               ch.carrying = true;
               // A free sofa seat at the table, to sit with the cup.
               const table = corner.table?.at;
+              // Every free one is tried: the way to one may be shut.
               const seat = table
-                ? pick(os.freeSeats().filter((s) => seatAtTable(s, table)))
+                ? shuffled(os.freeSeats().filter((s) => seatAtTable(s, table))).find((s) =>
+                    os.sitAsGuest(id, s.uid, COFFEE_SIT_SEC),
+                  )
                 : undefined;
-              const to = pick(drinkingSpots(corner));
-              if (seat && table && os.sitAsGuest(id, seat.uid, COFFEE_SIT_SEC)) {
+              // Standing, a place nobody else has or is going to, when there is one.
+              const spots = drinkingSpots(corner);
+              const to = pick(spots.filter((s) => !claimed(s, id))) ?? pick(spots);
+              if (seat && table) {
                 trip.spot = { col: seat.col, row: seat.row };
                 trip.stage = 'walk';
                 trip.seated = true;
@@ -228,6 +275,29 @@ export function useOfficeLife(
               } else {
                 sip(); // nowhere to take it: drunk at the machine
               }
+            }
+          } else if (trip.stage === 'queue') {
+            // Waiting its turn by the machine: the first to have come goes
+            // to its front when nobody is there.
+            const front = corner.machine[0];
+            const first = ![...trips.values()].some(
+              (t) => t.stage === 'queue' && (t.turn ?? 0) < (trip.turn ?? 0),
+            );
+            if (ch.state === CharacterState.WALK) {
+              // on the way to its place in the line
+            } else if (!arrived || now - (trip.queuedAt ?? now) > QUEUE_MAX_MS) {
+              end(); // stopped somewhere else, or tired of waiting
+            } else if (
+              first &&
+              front &&
+              !machineBusy(id) &&
+              os.sendOnErrand(id, front.col, front.row)
+            ) {
+              trip.spot = front;
+              trip.stage = 'machine';
+            } else {
+              os.holdStill(id, QUEUE_HOLD_SEC, false);
+              os.turnTo(id, faceMachine(trip.spot));
             }
           } else if (lostSeat) {
             end();
@@ -241,6 +311,7 @@ export function useOfficeLife(
               trip.until = now + POUR_SEC * 1000;
               // Held past the pour, so it is still here when the cup is full.
               os.holdStill(id, POUR_SEC + POUR_HOLD_SLACK_SEC, false);
+              os.turnTo(id, faceMachine(trip.spot));
             } else {
               sip();
             }
@@ -265,9 +336,19 @@ export function useOfficeLife(
           Math.random() < coffeeChance(elapsed)
         ) {
           const atMachine = corner.machine.length > 0;
-          const spot = pick(atMachine ? corner.machine : drinkingSpots(corner));
-          if (spot && os.sendOnErrand(id, spot.col, spot.row)) {
-            trips.set(id, { spot, stage: atMachine ? 'machine' : 'walk' });
+          if (atMachine && machineBusy(id)) {
+            // Someone is at the machine: wait by it, when there is room to.
+            const spot = queueSpots(corner.machine[0], os.walkableTiles).find(
+              (q) => !claimed(q, id),
+            );
+            if (spot && os.sendOnErrand(id, spot.col, spot.row)) {
+              trips.set(id, { spot, stage: 'queue', turn: nextTurn++, queuedAt: now });
+            }
+          } else {
+            const spot = pick(atMachine ? corner.machine : drinkingSpots(corner));
+            if (spot && os.sendOnErrand(id, spot.col, spot.row)) {
+              trips.set(id, { spot, stage: atMachine ? 'machine' : 'walk' });
+            }
           }
         } else if (
           on.game &&

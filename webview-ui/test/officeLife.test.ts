@@ -6,6 +6,9 @@ import {
   COFFEE_EVERY_MS,
   coffeeChance,
   coffeeCorner,
+  machineFront,
+  QUEUE_SPOTS,
+  queueSpots,
   coffeeSpots,
   drinkingSpots,
   followTurn,
@@ -103,6 +106,35 @@ describe('office life', () => {
     expect(drinkingSpots(corner)).toEqual([{ col: 2, row: 2 }]);
     // The machine is not where one drinks, nor is the sign anything.
     expect(coffeeSpots([furniture[0], furniture[4]], walkable)).toEqual([]);
+  });
+
+  it('a cup is filled from the front of the machine, and the others wait by it, not beside the machine', () => {
+    const machine = { type: 'COFFEE_MACHINE', col: 5, row: 0 };
+    // The machine is two tiles tall: (5,1) is its counter; its front is (5,2).
+    const walkable = [
+      { col: 4, row: 1 },
+      { col: 6, row: 1 },
+      { col: 4, row: 2 },
+      { col: 5, row: 2 },
+      { col: 6, row: 2 },
+      { col: 4, row: 3 },
+      { col: 6, row: 3 },
+      { col: 9, row: 9 },
+    ];
+    expect(machineFront([machine], walkable)).toEqual({ col: 5, row: 2 });
+    expect(coffeeCorner([machine], walkable).machine).toEqual([{ col: 5, row: 2 }]);
+    const line = queueSpots({ col: 5, row: 2 }, walkable);
+    expect(line).toEqual([
+      { col: 4, row: 2 },
+      { col: 6, row: 2 },
+      { col: 4, row: 3 },
+    ]);
+    // Never the front itself, nor the tiles at the machine's sides.
+    expect(line.some((t) => t.row < 2 || (t.col === 5 && t.row === 2))).toBe(false);
+    expect(line.length).toBeLessThanOrEqual(QUEUE_SPOTS);
+    // No machine, or one with nothing walkable below it: no front.
+    expect(machineFront([], walkable)).toBeNull();
+    expect(machineFront([machine], [{ col: 4, row: 1 }])).toBeNull();
   });
 
   it('an office with no machine, table or bin has none of it, and the old coffee still works', () => {

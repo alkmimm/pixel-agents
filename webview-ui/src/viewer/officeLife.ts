@@ -177,12 +177,54 @@ export function wayTo(from: Tile, to: Tile): 'up' | 'down' | 'left' | 'right' {
 
 const stepsBetween = (a: Tile, b: Tile) => Math.abs(a.col - b.col) + Math.abs(a.row - b.row);
 
+/** How far below a machine's tile its front can be (it is two tiles tall). */
+const MACHINE_FRONT_ROWS = 3;
+/** How many wait for the machine at once; one more does not set off. */
+export const QUEUE_SPOTS = 3;
+/** Waiting places are this close (in steps) to the machine's front. */
+const QUEUE_REACH_TILES = 3;
+/** Someone waiting for the machine gives up after this long. */
+export const QUEUE_MAX_MS = 60_000;
+
+/** The one place a cup is filled from: the first walkable tile straight below
+ *  the machine (its front). Null when there is none: a machine boxed in. */
+export function machineFront(
+  furniture: ReadonlyArray<{ type: string; col: number; row: number }>,
+  walkable: readonly Tile[],
+): Tile | null {
+  const machine = furniture.find((f) => f.type.split(':')[0] === 'COFFEE_MACHINE');
+  if (!machine) return null;
+  for (let d = 1; d <= MACHINE_FRONT_ROWS; d++) {
+    const row = machine.row + d;
+    if (walkable.some((t) => t.col === machine.col && t.row === row)) {
+      return { col: machine.col, row };
+    }
+  }
+  return null;
+}
+
+/** Where one waits for the machine, nearest first: by its front, never beside
+ *  the machine itself (a row above the front) nor on the front. */
+export function queueSpots(front: Tile, walkable: readonly Tile[]): Tile[] {
+  return walkable
+    .filter((t) => {
+      const d = stepsBetween(t, front);
+      return t.row >= front.row && d > 0 && d <= QUEUE_REACH_TILES;
+    })
+    .sort((a, b) => stepsBetween(a, front) - stepsBetween(b, front) || a.row - b.row || a.col - b.col)
+    .slice(0, QUEUE_SPOTS)
+    .map((t) => ({ col: t.col, row: t.row }));
+}
+
 export function coffeeCorner(
   furniture: ReadonlyArray<{ type: string; col: number; row: number }>,
   walkable: readonly Tile[],
 ): CoffeeCorner {
   const of = (kind: string) => furniture.filter((f) => f.type.split(':')[0] === kind);
-  const machine = spotsNear(furniture, walkable, 'COFFEE_MACHINE');
+  // A cup is filled from the machine's front; only a machine with no front
+  // is used from wherever one can stand by it.
+  const front = machineFront(furniture, walkable);
+  const machine = front ? [front] : spotsNear(furniture, walkable, 'COFFEE_MACHINE');
   // The table closest to the machine (any table, without one).
   const from = of('COFFEE_MACHINE')[0];
   const tables = of('COFFEE_TABLE')
