@@ -50,6 +50,8 @@ function office() {
     rows,
     tiles: new Array<TileType>(cols * rows).fill(TileType.FLOOR_1),
     furniture: [
+      { uid: 'desk-1', type: 'TEST_CHAIR', col: 0, row: 0 },
+      { uid: 'desk-2', type: 'TEST_CHAIR', col: 11, row: 0 },
       { uid: 'machine', type: 'COFFEE_MACHINE', col: 5, row: 0 },
       { uid: 'table', type: 'COFFEE_TABLE', col: 2, row: 4 },
       { uid: 'sofa-1', type: 'TEST_CHAIR', col: 1, row: 4 },
@@ -62,8 +64,9 @@ function office() {
     ],
   };
   const os = new OfficeState(layout);
-  restoreAgent(os, { id: 1 });
-  restoreAgent(os, { id: 2 });
+  // Each has its own chair: the sofas and the poufs are nobody's.
+  restoreAgent(os, { id: 1, seatId: 'desk-1' });
+  restoreAgent(os, { id: 2, seatId: 'desk-2' });
   let now = 1_000_000;
   // rand 0.99: nothing starts by chance; only what the test asks for happens.
   const director = new OfficeDirector(() => os, () => ({ tone: 'idle' as const }), now, () => 0.99);
