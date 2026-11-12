@@ -20,6 +20,7 @@ import {
   type ViewerFeatures,
 } from './agentSignals.js';
 import { agentStatusView, agentTitle, TONE_COLOR } from './agentStatus.js';
+import { modelLevel } from './modelLevel.js';
 
 interface Props {
   officeState: OfficeState;
@@ -59,6 +60,7 @@ export function AgentsPanel({
       project: officeState.characters.get(id)?.directoryName,
       status,
       title: sessionTitle(s, features) ?? agentTitle(officeState, id),
+      level: features.modelLevel ? modelLevel(s?.model, s?.effort) : undefined,
       alerts: signalBadges(s, status, undefined, features, now).filter(
         (b) => b.tone === 'alert' && b.key !== 'mode',
       ),
@@ -84,6 +86,11 @@ export function AgentsPanel({
           style={{ background: TONE_COLOR[row.tone] }}
         />
         <span className="text-2xs text-text truncate">{row.title}</span>
+        {row.level !== undefined && (
+          <span className="text-2xs text-text-muted shrink-0" title="Nível pelo modelo e esforço">
+            Lv. {row.level}
+          </span>
+        )}
         {row.since !== undefined && (
           <span className="text-2xs text-text-muted ml-auto shrink-0">
             {timeAgo(row.since, now)}

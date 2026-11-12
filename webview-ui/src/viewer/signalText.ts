@@ -24,6 +24,9 @@ export interface AgentSignals {
   rateLimited: boolean;
   quotaUntil?: number;
   repeats: number;
+  /** The model the session runs on, and its reasoning effort (viewer/modelLevel.ts). */
+  model?: string;
+  effort?: string;
 }
 
 /** The viewer's opt-in features (the "Novidades" options). */
@@ -33,6 +36,8 @@ export interface ViewerFeatures {
   signals: boolean;
   permissionMode: boolean;
   inbox: boolean;
+  /** Gear and a level by the agent's model (viewer/modelLevel.ts). */
+  modelLevel: boolean;
 }
 
 export const NO_FEATURES: ViewerFeatures = {
@@ -41,6 +46,7 @@ export const NO_FEATURES: ViewerFeatures = {
   signals: false,
   permissionMode: false,
   inbox: false,
+  modelLevel: false,
 };
 
 /** A turn running this long with nothing new reads as stalled. */

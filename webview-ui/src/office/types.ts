@@ -197,6 +197,9 @@ export interface Character extends Blinker {
   /** Which copy of its character this is (0 = the first, n = its nth repeat,
    *  drawn in the nth repeat clothes colour; characters/repeatClothes.ts) */
   repeat: number;
+  /** pixel-agents-secure (local): the gear worn for its agent's model
+   *  (viewer/modelLevel.ts modelGear); 0 = none. */
+  gear: number;
   /** Animation frame index */
   frame: number;
   /** Time accumulator for animation */

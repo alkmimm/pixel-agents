@@ -69,6 +69,7 @@ function makeChar(id: number, col: number, row: number): Character {
     currentTool: null,
     palette: 0,
     repeat: 0,
+    gear: 0,
     frame: 0,
     frameTimer: 0,
     wanderTimer: 0,

@@ -32,6 +32,8 @@ function onServerMessage(raw: unknown): void {
       rateLimited: msg.rateLimited === true,
       quotaUntil: Number.isFinite(quota) ? quota : undefined,
       repeats: num(msg.repeats),
+      model: str(msg.model, 64),
+      effort: str(msg.effort, 16),
     });
   } else if (msg.type === 'agentClosed' && typeof msg.id === 'number' && signals.has(msg.id)) {
     signals = new Map(signals);

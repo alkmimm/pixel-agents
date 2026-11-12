@@ -24,6 +24,7 @@ import {
   type ViewerFeatures,
 } from './agentSignals.js';
 import { agentStatusView, agentTitle, TONE_COLOR } from './agentStatus.js';
+import { levelText } from './modelLevel.js';
 
 const CARD_WIDTH = 280;
 const GAP = 14;
@@ -118,6 +119,7 @@ export function AgentHoverCard({
   const title = sessionTitle(signals, features);
   const badges = signalBadges(signals, status, last, features, now);
   const idle = idleText(status, last, features, now);
+  const level = features.modelLevel ? levelText(signals?.model, signals?.effort) : undefined;
 
   return (
     <div
@@ -156,6 +158,11 @@ export function AgentHoverCard({
             )}
             {idle && <span className="text-2xs text-text-muted">{idle}</span>}
           </div>
+          {level && (
+            <span className="text-2xs text-text-muted" data-testid="agent-level">
+              {level}
+            </span>
+          )}
           {badges.map((b) => (
             <span key={b.key} className="text-2xs" style={{ color: BADGE_COLOR[b.tone] }}>
               {b.text}

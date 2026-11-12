@@ -39,13 +39,15 @@ interface LoadedCharacterData {
 let loadedCharacters: LoadedCharacterData[] | null = null;
 
 /**
- * A palette's sheet as its nth repeat (repeat ≥ 1) and/or mid-blink, or null to draw
- * the plain sheet (a palette that can't blink, or one with nothing to vary).
+ * A palette's sheet as its nth repeat (repeat ≥ 1), in a model's gear (gear ≥ 1;
+ * characters/modelGear.ts) and/or mid-blink, or null to draw the plain sheet (a
+ * palette that can't blink, or one with nothing to vary).
  */
 type VariantSource = (
   palette: number,
   repeat: number,
   blink: boolean,
+  gear: number,
 ) => LoadedCharacterData | null;
 let variants: VariantSource | null = null;
 
@@ -119,13 +121,14 @@ function emptySprite(w: number, h: number): SpriteData {
 }
 
 /** A character's sprites: its own sheet, or the nth repeat's (its clothes recoloured),
- *  with its eyes shut when `blink`. */
+ *  in its model's gear when `gear`, with its eyes shut when `blink`. */
 export function getCharacterSprites(
   paletteIndex: number,
   repeat = 0,
   blink = false,
+  gear = 0,
 ): CharacterSprites {
-  const cacheKey = `${paletteIndex}:${repeat}:${blink ? 1 : 0}`;
+  const cacheKey = `${paletteIndex}:${repeat}:${blink ? 1 : 0}:${gear}`;
   const cached = spriteCache.get(cacheKey);
   if (cached) return cached;
 
@@ -134,10 +137,11 @@ export function getCharacterSprites(
   if (loadedCharacters) {
     // Use pre-colored character sprites directly (no palette swapping)
     const palette = paletteIndex % loadedCharacters.length;
-    const variant = repeat || blink ? variants?.(palette, repeat, blink) : null;
+    const variant =
+      repeat || blink || gear ? variants?.(palette, repeat, blink, gear) : null;
     if (!variant && blink) {
       // No blink for this one: its open-eyed sprites, shared under this key too.
-      sprites = getCharacterSprites(paletteIndex, repeat);
+      sprites = getCharacterSprites(paletteIndex, repeat, false, gear);
       spriteCache.set(cacheKey, sprites);
       return sprites;
     }

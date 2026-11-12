@@ -59,6 +59,7 @@ const DEFAULT_PREFS: ViewerPrefs = {
   signals: false,
   permissionMode: false,
   inbox: false,
+  modelLevel: false,
 };
 const STORAGE_KEY = 'pixel-agents-secure.viewer-prefs';
 
@@ -85,6 +86,12 @@ const FEATURE_OPTIONS: Array<{ key: ViewerToggle; label: string; title: string }
   },
   { key: 'permissionMode', label: 'Modo de permissão', title: 'Destaca sessões em bypass ou dontAsk' },
   { key: 'inbox', label: 'Caixa “Precisa de você”', title: 'Lista quem espera você; clique centraliza' },
+  {
+    key: 'modelLevel',
+    label: 'Nível por modelo',
+    title:
+      'Veste cada personagem pelo modelo da sessão (Fable: terno e óculos escuros; Opus: blazer e relógio; Sonnet: colete; Haiku: boné e crachá; colar no esforço máximo) e mostra o nível no cartão e na lista',
+  },
   {
     key: 'rooms',
     label: 'Salas por projeto',

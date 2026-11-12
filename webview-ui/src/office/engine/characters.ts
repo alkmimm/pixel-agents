@@ -72,6 +72,7 @@ export function createCharacter(
     currentTool: null,
     palette,
     repeat,
+    gear: 0,
     frame: 0,
     frameTimer: 0,
     wanderTimer: 0,

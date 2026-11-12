@@ -16,6 +16,7 @@ const ALL: ViewerFeatures = {
   signals: true,
   permissionMode: true,
   inbox: true,
+  modelLevel: true,
 };
 const quiet: AgentSignals = { errorStreak: 0, rateLimited: false, repeats: 0 };
 const NOW = 1_800_000_000_000;

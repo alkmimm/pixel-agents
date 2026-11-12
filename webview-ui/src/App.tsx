@@ -66,6 +66,7 @@ import {
   type ViewerFeatures,
 } from './viewer/agentSignals.js';
 import { agentStatusView } from './viewer/agentStatus.js';
+import { dressCharacters } from './viewer/modelLevel.js';
 import { AgentsPanel } from './viewer/AgentsPanel.js';
 import { AttentionInbox } from './viewer/AttentionInbox.js';
 import { projectAliases, shownProjectName } from './viewer/roomNames.js';
@@ -268,10 +269,15 @@ function App() {
       signals: viewerPrefs.signals,
       permissionMode: viewerPrefs.permissionMode,
       inbox: viewerPrefs.inbox,
+      modelLevel: viewerPrefs.modelLevel,
     }),
     [viewerPrefs],
   );
   const allSignals = useAllSignals();
+  // pixel-agents-secure (local): each character in its model's gear.
+  useEffect(() => {
+    dressCharacters(getOfficeState().characters.values(), allSignals, features.modelLevel);
+  }, [allSignals, features.modelLevel, agents, subagentCharacters]);
   useEffect(() => {
     if (!officeReadOnly) return;
     const always = viewerPrefs.labelMode === 'always';

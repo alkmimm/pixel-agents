@@ -1,8 +1,8 @@
 /**
  * The office wears the cast: profile N is palette N, followed by any char_N.png sprites
  * from external asset directories. Follows the cast store as a subscriber; the store
- * doesn't know about the office. A repeated character's sheet (repeatClothes.ts) is
- * rendered on demand: a profile's with its clothes recoloured, an external sprite
+ * doesn't know about the office. A repeated character's sheet (repeatClothes.ts), and one
+ * in a model's gear (modelGear.ts), is rendered on demand: a profile's with its clothes recoloured, an external sprite
  * hue-turned whole.
  */
 
@@ -14,6 +14,7 @@ import { CAST_OFFICE_SYNC_MS } from '../constants.js';
 import { adjustSprite } from '../office/colorize.js';
 import { setCharacterTemplates } from '../office/sprites/spriteData.js';
 import type { CastState } from './cast.js';
+import { withModelGear } from './modelGear.js';
 import type { CharacterRenderer } from './renderer.js';
 import { repeatHueTurn, withRepeatClothes } from './repeatClothes.js';
 import { SHEET_W } from './sheet.js';
@@ -91,14 +92,15 @@ function sync(): void {
   if (!renderer || !profiles.length) return;
   const sprites = profiles.map((p) => officeSpritesOf(renderer.sheet(p)));
   // The repeats are drawn from this same cast, so they never fall out of step.
-  setCharacterTemplates([...sprites, ...external], (palette, repeat, blink) => {
+  setCharacterTemplates([...sprites, ...external], (palette, repeat, blink, gear) => {
     const profile = profiles[palette];
     if (profile) {
-      const worn = repeat ? withRepeatClothes(profile, repeat) : profile;
+      // The gear goes over the repeat's colours, in its own.
+      const worn = withModelGear(repeat ? withRepeatClothes(profile, repeat) : profile, gear);
       return blink ? blinkSprites(renderer, profile, worn) : officeSpritesOf(renderer.sheet(worn));
     }
-    // External char_N.png sprites have no eyes to shut.
-    const sprite = blink ? null : external[palette - profiles.length];
+    // External char_N.png sprites have no eyes to shut, and no slots to dress.
+    const sprite = blink || !repeat ? null : external[palette - profiles.length];
     return sprite ? hueTurned(sprite, repeat) : null;
   });
   synced = true;
