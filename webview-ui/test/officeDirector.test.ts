@@ -66,7 +66,7 @@ function office() {
   restoreAgent(os, { id: 2 });
   let now = 1_000_000;
   // rand 0.99: nothing starts by chance; only what the test asks for happens.
-  const director = new OfficeDirector(() => os, now, () => 0.99);
+  const director = new OfficeDirector(() => os, () => ({ tone: 'idle' as const }), now, () => 0.99);
   /** One second of the office, then one look of the director. */
   const second = () => {
     for (let i = 0; i < 15; i++) os.update(1 / 15);

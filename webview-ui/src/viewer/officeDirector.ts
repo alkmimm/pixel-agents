@@ -17,7 +17,6 @@ import type { OfficeState } from '../office/engine/officeState.js';
 import type { OfficeLayout, ToolActivity } from '../office/types.js';
 import { CharacterState, Direction, TILE_SIZE } from '../office/types.js';
 import { isWaiting } from './agentGroups.js';
-import { agentStatusView } from './agentStatus.js';
 import {
   CHAT_SEC,
   chatPairs,
@@ -42,6 +41,7 @@ import {
   type TurnMemo,
   wayTo,
 } from './officeLife.js';
+import type { StatusLike } from './signalText.js';
 
 /** How often the director looks at the office. */
 export const LOOK_MS = 1_000;
@@ -79,6 +79,12 @@ const FACING = {
 } as const;
 
 type Tile = { col: number; row: number };
+/** An agent's state, as far as the director reads it. */
+export type StatusOf = (
+  office: OfficeState,
+  id: number,
+  tools: Record<number, ToolActivity[]>,
+) => { tone: StatusLike['tone']; since?: number };
 /** What two agents can do together. */
 export type Plan = 'coffee' | 'game';
 type Stage =
@@ -162,11 +168,23 @@ export class OfficeDirector {
   private fullRoundAfter = 0;
   private wish: { a: number; b: number; plan: Plan } | null = null;
 
+  private readonly office: () => OfficeState;
+  private readonly statusOf: StatusOf;
+  private readonly rand: () => number;
+
+  /**
+   * @param statusOf An agent's state as the office shows it (agentStatus.ts); given, not
+   *   imported, so that the director needs nothing of the browser.
+   */
   constructor(
-    private readonly office: () => OfficeState,
+    office: () => OfficeState,
+    statusOf: StatusOf,
     now: number = Date.now(),
-    private readonly rand: () => number = Math.random,
+    rand: () => number = Math.random,
   ) {
+    this.office = office;
+    this.statusOf = statusOf;
+    this.rand = rand;
     this.lastLook = now;
     // The first round comes soon, so the robot is seen at work.
     this.nextRound = now + ROBOT_FIRST_MS;
@@ -315,7 +333,7 @@ export class OfficeDirector {
       if (o.state === CharacterState.WALK || o.guestSeat || trips.has(other) || hasMood(other)) {
         return false;
       }
-      const status = agentStatusView(os, other, tools);
+      const status = this.statusOf(os, other, tools);
       return !isSleepy(status.tone, status.since, now);
     };
     /** The nearest agent free to come along. */
@@ -405,7 +423,7 @@ export class OfficeDirector {
     for (const id of ids) {
       const ch = os.characters.get(id);
       if (!ch || ch.isSubagent || ch.matrixEffect) continue;
-      const status = agentStatusView(os, id, tools);
+      const status = this.statusOf(os, id, tools);
 
       const turn = followTurn(memos.get(id), status.tone, now);
       memos.set(id, turn.memo);

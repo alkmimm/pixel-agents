@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import type { OfficeState } from '../office/engine/officeState.js';
 import type { ToolActivity } from '../office/types.js';
+import { agentStatusView } from './agentStatus.js';
 import { ALL_PARTS, type LifeParts, LOOK_MS, OfficeDirector } from './officeDirector.js';
 
 export type { LifeParts } from './officeDirector.js';
@@ -24,7 +25,7 @@ export function useOfficeLife(
 
   useEffect(() => {
     if (!enabled) return;
-    const own = new OfficeDirector(getOfficeState);
+    const own = new OfficeDirector(getOfficeState, agentStatusView);
     director.current = own;
     const timer = setInterval(() => {
       const { agents: ids, agentTools: tools, parts: on } = latest.current;
