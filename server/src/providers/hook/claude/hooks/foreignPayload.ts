@@ -80,7 +80,9 @@ interface AgentDialect {
   permissionNotice: (type: string) => boolean;
 }
 
-const DIALECTS: Record<Exclude<AgentKind, 'cursor'>, AgentDialect> = {
+// Cursor has its own translation (cursorPayload.ts); Codex posts no hook at
+// all (its sessions are read from its files, codexSessions.ts).
+const DIALECTS: Record<Exclude<AgentKind, 'cursor' | 'codex'>, AgentDialect> = {
   copilot: {
     events: {
       sessionstart: 'SessionStart',
