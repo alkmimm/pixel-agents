@@ -26,7 +26,7 @@ TYPE1, TYPE2, SEATED = 3, 4, 7
 STEEL = ['#2b3440', '#7f8fa3', '#a3b4c8', '#e6eef6']
 GOLD = ['#6b4a12', '#c8962a', '#e8bb3e', '#fff2a8']
 LEATHER = ['#3b2414', '#7a4a22', '#93602f', '#c08a4a']
-WOOD, RED, WHITE = '#6e4a2a', '#d23a3a', '#ffffff'
+WOOD, RED, WHITE = '#c9965a', '#d23a3a', '#ffffff'
 
 
 def rgba(h):
@@ -186,9 +186,10 @@ def shield(ramp):
 
 STAR = {
     'colors': {'y': GOLD[2], 'w': WHITE, 'o': GOLD[0]},
-    FRONT: (6, -2, ['.y.', 'ywy', '.y.']),
-    BACK: (6, -2, ['.y.', 'ywy', '.y.']),
-    SIDE: (7, 1, ['.y.', 'ywy', '.y.']),
+    # On the top of the head: a walking character's head starts at row 2.
+    FRONT: (6, -1, ['.y.', 'ywy', '.y.']),
+    BACK: (6, -1, ['.y.', 'ywy', '.y.']),
+    SIDE: (7, 2, ['.y.', 'ywy', '.y.']),
 }
 
 BASE_TOP = {FRONT: 2, BACK: 2, SIDE: 5}
