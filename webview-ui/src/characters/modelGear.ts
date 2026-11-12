@@ -2,7 +2,7 @@
  * pixel-agents-secure (local): the gear a character wears for the model its
  * agent runs on (viewer/modelLevel.ts): a sword on the back for Haiku, plus
  * leather armour for Sonnet, steel armour, helm and shield for Opus, the same
- * in gold with a plume for Fable, and a star over the head at the top effort.
+ * in gold with a plume for Fable, and a violet gem on the head at the top effort.
  *
  * Like a repeat's clothes (repeatClothes.ts), it is a copy of the profile made
  * for drawing: the saved cast is never changed, and the character keeps its
@@ -24,5 +24,5 @@ export function withModelGear(p: CharacterProfile, gear: number): RenderProfile 
 export function gearArt(gear: number | undefined): string[] {
   const parts = gear ? gearParts(gear) : undefined;
   if (!parts) return [];
-  return parts.top ? [GEAR_ART[parts.tier], GEAR_ART.star] : [GEAR_ART[parts.tier]];
+  return parts.top ? [GEAR_ART[parts.tier], GEAR_ART.gem] : [GEAR_ART[parts.tier]];
 }

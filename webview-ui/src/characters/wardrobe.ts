@@ -83,7 +83,7 @@ export const GEAR_ART = {
   sonnet: 'gear/sonnet',
   opus: 'gear/opus',
   fable: 'gear/fable',
-  star: 'gear/star',
+  gem: 'gear/gem',
 } as const;
 /** Pieces a part of a category may come with, each its own sheet (<piece>/<part id>.png): an outfit's tie. */
 const PART_EXTRAS: Record<string, readonly string[]> = { full: ['tie'] };

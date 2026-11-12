@@ -46,7 +46,7 @@ const front = (palette: number, repeat: number, gear: number) =>
 const MODELS = ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-2'];
 const GEARS = MODELS.flatMap((m) => [modelGear(m, 'medium'), modelGear(m, 'xhigh')]);
 
-it('every gear lays its tier sheet, and the star at the top effort', () => {
+it('every gear lays its tier sheet, and the gem at the top effort', () => {
   expect(gearArt(0)).toEqual([]);
   expect(gearArt(undefined)).toEqual([]);
   expect(gearArt(99)).toEqual([]);
@@ -54,7 +54,7 @@ it('every gear lays its tier sheet, and the star at the top effort', () => {
     const [sheet] = gearArt(modelGear(model, 'medium'));
     expect(files.has(sheet), sheet).toBe(true);
     expect(gearArt(modelGear(model, 'medium'))).toEqual([sheet]);
-    expect(gearArt(modelGear(model, 'xhigh'))).toEqual([sheet, 'gear/star']);
+    expect(gearArt(modelGear(model, 'xhigh'))).toEqual([sheet, 'gear/gem']);
   }
   expect(new Set(MODELS.map((m) => gearArt(modelGear(m))[0])).size).toBe(MODELS.length);
 });

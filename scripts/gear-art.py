@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """pixel-agents-secure (local): draws the model gear sheets (sword, armour, helm,
-shield, star) in webview-ui/src/characters/art/gear/. The PNGs are committed;
+shield, gem) in webview-ui/src/characters/art/gear/. The PNGs are committed;
 this script is how they were made, and how to change them:
 
     python3 -I scripts/gear-art.py            # rewrite the PNGs
@@ -184,12 +184,14 @@ def shield(ramp):
     }
 
 
-STAR = {
-    'colors': {'y': GOLD[2], 'w': WHITE, 'o': GOLD[0]},
+# The top effort's mark: a violet gem, outlined dark so it shows on hair, steel
+# and the gold helm alike.
+GEM = {
+    'colors': {'v': '#c264ff', 'w': WHITE, 'o': '#3a1466'},
     # On the top of the head: a walking character's head starts at row 2.
-    FRONT: (6, -1, ['.y.', 'ywy', '.y.']),
-    BACK: (6, -1, ['.y.', 'ywy', '.y.']),
-    SIDE: (7, 2, ['.y.', 'ywy', '.y.']),
+    FRONT: (6, -1, ['ovo', 'vwv', 'ovo']),
+    BACK: (6, -1, ['ovo', 'vwv', 'ovo']),
+    SIDE: (7, 2, ['ovo', 'vwv', 'ovo']),
 }
 
 BASE_TOP = {FRONT: 2, BACK: 2, SIDE: 5}
@@ -243,7 +245,7 @@ def sheets():
         'sonnet': build(LEATHER, [sword(STEEL[1])]),
         'opus': build(STEEL, [sword(STEEL[1]), shield(STEEL), helm(STEEL, None)]),
         'fable': build(GOLD, [sword(GOLD[2]), shield(GOLD), helm(GOLD, RED)]),
-        'star': build(None, [STAR]),
+        'gem': build(None, [GEM]),
     }
 
 

@@ -90,7 +90,7 @@ const FEATURE_OPTIONS: Array<{ key: ViewerToggle; label: string; title: string }
     key: 'modelLevel',
     label: 'Nível por modelo',
     title:
-      'Equipa cada personagem pelo modelo da sessão (Haiku: espada; Sonnet: espada e armadura de couro; Opus: armadura, elmo e escudo de aço; Fable: os mesmos em ouro; estrela no esforço máximo) e mostra o nível no cartão e na lista',
+      'Equipa cada personagem pelo modelo da sessão (Haiku: espada; Sonnet: espada e armadura de couro; Opus: armadura, elmo e escudo de aço; Fable: os mesmos em ouro; gema roxa na cabeça no esforço máximo) e mostra o nível no cartão e na lista',
   },
   {
     key: 'rooms',
