@@ -299,9 +299,11 @@ export function fxPixels(kind: FxKind, age: number, top: number): FxPixel[] {
       return out;
     }
     case 'dots': {
-      // "…", one dot after the other.
+      // "…", one dot after the other, each two pixels a side.
       const shown = Math.min(3, 1 + Math.floor(p * 4));
-      return [5, 8, 11].slice(0, shown).map((x) => ({ x, y: top - 3, color: WHITE }));
+      return [4, 7, 10].slice(0, shown).flatMap((x) =>
+        [0, 1].flatMap((dx) => [0, 1].map((dy) => ({ x: x + dx, y: top - 5 + dy, color: WHITE }))),
+      );
     }
   }
 }
