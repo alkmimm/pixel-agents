@@ -85,7 +85,7 @@ export const PROPS = { glasses: 'props/reading-glasses', paper: 'props/paper' } 
  */
 export const GEAR_CLASSES = MODEL_TIERS;
 export type GearClass = ModelTier;
-const GEAR_HEADGEAR: ReadonlySet<GearClass> = new Set(['sonnet', 'opus', 'fable']);
+const GEAR_HEADGEAR: ReadonlySet<GearClass> = new Set(['sonnet', 'opus', 'fable', 'codex']);
 export const gearSheetArt = (gear: GearClass, additions: number): string =>
   `gear/${gear}_${additions}`;
 export const gearHideArt = (gear: GearClass): string | undefined =>

@@ -118,7 +118,7 @@ const FEATURE_OPTIONS: Array<{ key: ViewerToggle; label: string; title: string }
     key: 'modelLevel',
     label: 'Nível por modelo',
     title:
-      'Cada personagem ganha a classe do modelo da sessão (Haiku: escudeiro; Sonnet: arqueiro; Opus: cavaleiro; Fable: mago), um enfeite na cabeça no esforço alto e também uma capa no máximo. Quem está trabalhando mostra de vez em quando o efeito da classe. O nível aparece no cartão e na lista',
+      'Cada personagem ganha a classe do modelo da sessão (Haiku: escudeiro; Sonnet: arqueiro; Opus: cavaleiro; Fable: mago; Codex: ninja, e guardião para os modelos pequenos e o revisor), um enfeite na cabeça no esforço alto e também uma capa no máximo. Quem está trabalhando mostra de vez em quando o efeito da classe. O nível aparece no cartão e na lista',
   },
   {
     key: 'rooms',

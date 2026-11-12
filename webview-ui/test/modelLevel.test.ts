@@ -16,8 +16,17 @@ describe('model level', () => {
     expect(modelTier('claude-opus-5-5[1m]')).toBe('opus');
     expect(modelTier('us.anthropic.claude-sonnet-5-5-v1:0')).toBe('sonnet');
     expect(modelTier('claude-haiku-5-5')).toBe('haiku');
-    expect(modelTier('gpt-9')).toBeUndefined();
+    expect(modelTier('llama-9')).toBeUndefined();
     expect(modelTier(undefined)).toBeUndefined();
+    // Codex's models are classes of their own; its small ones and its reviewer, the lesser.
+    expect(modelTier('gpt-6.1-sol')).toBe('codex');
+    expect(modelTier('gpt-6.1-codex-mini')).toBe('codexmini');
+    expect(modelTier('codex-auto-review')).toBe('codexmini');
+    expect(modelLevel('gpt-6.1-sol', 'xhigh')).toBe(80);
+    expect(modelLevel('codex-auto-review', 'low')).toBe(30);
+    expect(gearParts(modelGear('gpt-6.1-sol', 'xhigh'))).toEqual({ tier: 'codex', additions: 2 });
+    // A Claude gear number is what it was before Codex's classes came.
+    expect(modelGear('claude-fable-5-2', 'xhigh')).toBe(14);
   });
 
   it('is the model base plus the effort bonus', () => {
@@ -35,7 +44,7 @@ describe('model level', () => {
 
   it('gear is one number per tier and effort step, and reads back', () => {
     expect(modelGear(undefined)).toBe(0);
-    expect(modelGear('gpt-9', 'xhigh')).toBe(0);
+    expect(modelGear('llama-9', 'xhigh')).toBe(0);
     for (const none of [0, 1, 2, -3, 3.5, 15, 99, NaN]) expect(gearParts(none)).toBeUndefined();
     const seen = new Set<number>();
     for (const [model, tier] of [
@@ -63,7 +72,7 @@ describe('model level', () => {
   it('writes the level for a card', () => {
     expect(levelText('claude-fable-5-2', 'xhigh')).toBe('Lv. 100 · fable-5-2 · xhigh');
     expect(levelText('claude-opus-5-5')).toBe('Lv. 60 · opus-5-5');
-    expect(levelText('gpt-9', 'high')).toBeUndefined();
+    expect(levelText('llama-9', 'high')).toBeUndefined();
     expect(levelText(undefined)).toBeUndefined();
   });
 

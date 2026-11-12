@@ -8,6 +8,7 @@ import { AgentStateStore } from '../src/agentStateStore.js';
 import {
   ACTIVE_WINDOW_MS,
   APPEND_MAX_BYTES,
+  REVIEW_LINGER_MS,
   type CodexEvent,
   CodexSessions,
   codexSessionRoots,
@@ -100,7 +101,29 @@ describe('H18: what is read of a Codex record', () => {
     expect(of(execDone())).toEqual([{ hook_event_name: 'PostToolUse' }]);
     for (const text of noise().trim().split('\n')) expect(of(text)).toEqual([]);
     expect(of(complete())).toEqual([{ hook_event_name: 'Stop' }]);
-    expect(turn).toEqual({ open: false, calls: 0 });
+    // Of a turn's context only the model and the effort are kept.
+    expect(turn).toEqual({ open: false, calls: 0, model: 'gpt-6.1-sol' });
+    expect(JSON.stringify(turn)).not.toContain(SECRET);
+  });
+
+  it('a turn context gives a well-formed model and effort, and nothing else', () => {
+    const turn: { open: boolean; calls: number; model?: string; effort?: string } = { open: false, calls: 0 };
+    const context = (payload: Record<string, unknown>) =>
+      eventsOfRecord({ type: 'turn_context', payload: { summary: SECRET, cwd: SECRET, ...payload } }, turn);
+    expect(context({ model: 'gpt-6.1-sol', effort: 'xhigh' })).toEqual([]);
+    expect(turn).toMatchObject({ model: 'gpt-6.1-sol', effort: 'xhigh' });
+    // A model that is not an id is not taken, and leaves what was known.
+    context({ model: `x ${SECRET}`, effort: 'low' });
+    context({ model: 42 });
+    expect(turn).toMatchObject({ model: 'gpt-6.1-sol', effort: 'xhigh' });
+    // An effort that is not one is dropped with the model that came with it.
+    context({ model: 'codex-auto-review', effort: SECRET });
+    expect(turn.model).toBe('codex-auto-review');
+    expect(turn.effort).toBeUndefined();
+    expect(JSON.stringify(turn)).not.toContain(SECRET);
+    // The header names a reviewer's parent only when it is a well-formed id.
+    expect(headerOf(header('guardian_review', { parent_thread_id: ID }).trim())?.parentId).toBe(ID);
+    expect(headerOf(header('guardian_review', { parent_thread_id: '../x' }).trim())?.parentId).toBeUndefined();
   });
 
   it('waiting tools show nothing, and another tool only its name', () => {
@@ -242,6 +265,67 @@ describe('H18: following Codex sessions', () => {
     await sessions.tick(false);
     expect(events).toHaveLength(1);
     expect((events[0].tool_input as { command: string }).command).toBe('late');
+  });
+
+  it('stage 2: the model and effort are told apart from the events, again until the office takes them', async () => {
+    const told: Array<[string, string, string | undefined]> = [];
+    let taken = false;
+    const own = new CodexSessions([root], (event) => events.push(filterHookPayload(event)), {
+      now: () => now,
+      onSignals: (sessionId, model, effort) => {
+        told.push([sessionId, model, effort]);
+        return taken;
+      },
+    });
+    const context = line({ type: 'turn_context', payload: { model: 'gpt-6.1-sol', effort: 'xhigh', summary: SECRET } });
+    fs.writeFileSync(file(), header() + context + started());
+    await own.tick(true);
+    await own.tick(false);
+    expect(told.length).toBe(2); // not taken: told again at the next pass
+    taken = true;
+    await own.tick(false);
+    await own.tick(false);
+    expect(told.length).toBe(3); // taken: not told again
+    expect(told[2]).toEqual([`codex:${ID}`, 'gpt-6.1-sol', 'xhigh']);
+    expect(JSON.stringify([told, events])).not.toContain(SECRET);
+    // No event carries the model: it reaches the office only as a signal.
+    expect(JSON.stringify(events)).not.toContain('gpt-6.1-sol');
+    own.stop();
+  });
+
+  it('stage 2: a reviewer is no agent; it is reported as its parent\'s helper while it has a turn', async () => {
+    const PARENT = '019a1b2c-3d4e-7f50-8a9b-ffffffffffff';
+    const reviews: Array<Record<string, unknown>> = [];
+    const own = new CodexSessions([root], (event) => events.push(filterHookPayload(event)), {
+      now: () => now,
+      onReviewer: (review) => {
+        reviews.push({ ...review });
+        return true;
+      },
+    });
+    const context = line({ type: 'turn_context', payload: { model: 'codex-auto-review', effort: 'low' } });
+    fs.writeFileSync(file(), header('guardian_review', { parent_thread_id: PARENT }) + complete());
+    await own.tick(true);
+    expect(own.size).toBe(1);
+    expect(reviews).toEqual([]); // followed, with no turn under way: nothing to show
+    // A whole turn within one pass still shows, and stays a moment.
+    fs.appendFileSync(file(), context + started() + exec('cat secret.txt') + execDone() + complete());
+    await own.tick(false);
+    expect(reviews).toEqual([
+      { parent: `codex:${PARENT}`, reviewer: ID, active: true, model: 'codex-auto-review', effort: 'low' },
+    ]);
+    now += REVIEW_LINGER_MS + 1;
+    await own.tick(false);
+    expect(reviews[1]).toMatchObject({ reviewer: ID, active: false });
+    // An open turn shows until it ends, and its helper leaves with the session.
+    fs.appendFileSync(file(), started());
+    await own.tick(false);
+    expect(reviews[2]).toMatchObject({ active: true });
+    own.stop();
+    expect(reviews[3]).toMatchObject({ active: false });
+    // A reviewer posts no hook event at all.
+    expect(events).toEqual([]);
+    expect(JSON.stringify(reviews)).not.toContain(SECRET);
   });
 
   it('with no roots it never starts', () => {

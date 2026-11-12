@@ -5,12 +5,25 @@
  * Opt-in: Opções → Novidades → "Nível por modelo". Pure.
  */
 
-/** The model families the office tells apart, weakest first. */
-export const MODEL_TIERS = ['haiku', 'sonnet', 'opus', 'fable'] as const;
+/** The model families the office tells apart: Claude's, weakest first, then Codex's
+ *  (classes of their own, so a Codex agent is told from a Claude one at a glance).
+ *  The order is kept: a gear number is a tier's place here (modelGear). */
+export const MODEL_TIERS = ['haiku', 'sonnet', 'opus', 'fable', 'codexmini', 'codex'] as const;
 export type ModelTier = (typeof MODEL_TIERS)[number];
 
 /** A tier's level before the effort's bonus. */
-const BASE_LEVEL: Record<ModelTier, number> = { haiku: 20, sonnet: 40, opus: 60, fable: 90 };
+const BASE_LEVEL: Record<ModelTier, number> = {
+  haiku: 20,
+  sonnet: 40,
+  opus: 60,
+  fable: 90,
+  codexmini: 30,
+  codex: 70,
+};
+/** A Codex model id: OpenAI's families and Codex's own ("gpt-6.1-sol", "codex-auto-review"). */
+const CODEX_MODEL = /^(gpt|codex|o\d)/;
+/** Its small ones, and the one that reviews approvals by itself. */
+const CODEX_SMALL = /mini|nano|review/;
 /** What each effort adds; one the office does not know adds nothing. */
 const EFFORT_BONUS: ReadonlyMap<string, number> = new Map([
   ['low', 0],
@@ -28,6 +41,7 @@ export function modelTier(model: string | undefined): ModelTier | undefined {
   const id = model.toLowerCase();
   // Mythos is the same model as Fable.
   if (id.includes('fable') || id.includes('mythos')) return 'fable';
+  if (CODEX_MODEL.test(id)) return CODEX_SMALL.test(id) ? 'codexmini' : 'codex';
   return MODEL_TIERS.find((tier) => id.includes(tier));
 }
 
@@ -35,6 +49,7 @@ const bonusOf = (effort: string | undefined): number =>
   (effort !== undefined && EFFORT_BONUS.get(effort)) || 0;
 
 /** The level (20-100), or undefined for a model the office does not know. */
+// Codex's levels are the office's own guess: 70 for its main models, 30 for the small ones.
 export function modelLevel(model: string | undefined, effort?: string): number | undefined {
   const tier = modelTier(model);
   return tier ? BASE_LEVEL[tier] + bonusOf(effort) : undefined;

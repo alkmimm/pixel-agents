@@ -21,14 +21,18 @@
  * Off unless the viewer's service names the roots (viewer.ts,
  * PIXEL_AGENTS_CODEX_SESSION_ROOTS). The VS Code extension never starts it.
  *
- * Stage 1: sessions a person started (`thread_source: user`). The reviewer
- * sessions Codex opens by itself (`guardian_review`) are recognised and left
- * out, to come in as helpers of their parent.
+ * Sessions a person started (`thread_source: user`) come in as agents. The
+ * reviewer sessions Codex opens by itself (`guardian_review`, each naming its
+ * parent) are followed too, and reported apart (`onReviewer`): the office shows
+ * one as a helper of its parent while it has a turn under way. A session's
+ * model and effort (its `turn_context` records) are reported apart as well
+ * (`onSignals`), for the class the office dresses it in. Neither is a hook event.
  */
 import * as fs from 'fs';
 import * as path from 'path';
 
 import { kindSessionId } from './providers/hook/claude/hooks/agentKinds.js';
+import { EFFORT_PATTERN, MODEL_PATTERN } from './sessionSignals.js';
 
 /** How many roots are honoured. */
 const MAX_ROOTS = 4;
@@ -44,6 +48,8 @@ const LINE_MAX_BYTES = 512 * 1024;
 export const ACTIVE_WINDOW_MS = 10 * 60_000;
 /** One with a turn under way is given longer: a command can run for a while. */
 export const TURN_WINDOW_MS = 60 * 60_000;
+/** A reviewer whose turn was seen stays shown this long, however short the turn. */
+export const REVIEW_LINGER_MS = 8_000;
 const SCAN_INTERVAL_MS = 15_000;
 const POLL_INTERVAL_MS = 2_000;
 /** In `passedOver`: a file that growing will not make ours. */
@@ -77,6 +83,8 @@ export interface CodexHeader {
   cwd: string;
   /** Who started it: 'user', or Codex itself ('guardian_review', ...). */
   threadSource: string;
+  /** The session a reviewer works for (a session Codex opened by itself names its parent). */
+  parentId?: string;
 }
 
 const text = (value: unknown, max: number): string | undefined =>
@@ -107,7 +115,13 @@ export function headerOf(firstLine: string): CodexHeader | undefined {
   const id = text(payload.id, 64);
   const cwd = text(payload.cwd, 512);
   if (!id || !ID_PATTERN.test(id) || !cwd) return undefined;
-  return { id, cwd, threadSource: text(payload.thread_source, 32) ?? 'unknown' };
+  const parent = text(payload.parent_thread_id, 64);
+  return {
+    id,
+    cwd,
+    threadSource: text(payload.thread_source, 32) ?? 'unknown',
+    parentId: parent && ID_PATTERN.test(parent) ? parent : undefined,
+  };
 }
 
 /** What a session is in the middle of, as far as its records say. */
@@ -118,6 +132,9 @@ export interface CodexTurn {
   calls: number;
   /** The ids of quiet calls not yet answered: their answers end no shown tool. */
   quiet?: Set<string>;
+  /** The model and effort of its last turn (well-formed ids only, as sessionSignals.ts). */
+  model?: string;
+  effort?: string;
 }
 /** How many quiet calls are remembered at once. */
 const MAX_QUIET_CALLS = 64;
@@ -131,11 +148,21 @@ export type CodexEvent = Record<string, unknown>;
 /**
  * The events one record stands for, and its effect on the turn. This is the
  * allowlist: of a record only its type, a tool's name, a call's id (to pair
- * a call with its answer; never sent) and, for `exec`, the command (which the
- * H4 filter then cuts down to program and verb) are read.
+ * a call with its answer; never sent), for `exec` the command (which the
+ * H4 filter then cuts down to program and verb) and, of a turn's context, its
+ * model and effort are read.
  */
 export function eventsOfRecord(record: Record<string, unknown>, turn: CodexTurn): CodexEvent[] {
   const payload = payloadOf(record);
+  if (record.type === 'turn_context') {
+    const model = text(payload.model, 64);
+    if (model && MODEL_PATTERN.test(model)) {
+      const effort = text(payload.effort, 16);
+      turn.model = model;
+      turn.effort = effort && EFFORT_PATTERN.test(effort) ? effort : undefined;
+    }
+    return [];
+  }
   if (record.type === 'event_msg') {
     if (payload.type === 'task_started') {
       turn.open = true;
@@ -191,11 +218,32 @@ interface Tracked {
   partial: string;
   turn: CodexTurn;
   lastGrowth: number;
+  /** A session Codex opened to review its parent's approvals: a helper, not an agent. */
+  reviewer: boolean;
+  /** What was last reported of it (onSignals, onReviewer), to report only changes. */
+  reported?: string;
+  /** A reviewer is shown until then, at least: its turns can be shorter than a pass. */
+  lingerUntil?: number;
+}
+
+/** A reviewer's state: whose helper it is, and whether it has a turn under way. */
+export interface CodexReview {
+  /** The parent's session id, as its hook events carry it. */
+  parent: string;
+  /** The reviewer's own id (well-formed: ID_PATTERN). */
+  reviewer: string;
+  active: boolean;
+  model?: string;
+  effort?: string;
 }
 
 export interface CodexSessionsOptions {
   now?: () => number;
   log?: (message: string) => void;
+  /** A session's model and effort. False when the office has no such agent (yet): told again. */
+  onSignals?: (sessionId: string, model: string, effort: string | undefined) => boolean;
+  /** A reviewer's turn began or ended. False when its parent is not in the office: told again. */
+  onReviewer?: (review: CodexReview) => boolean;
 }
 
 export class CodexSessions {
@@ -207,6 +255,8 @@ export class CodexSessions {
   private busy = false;
   private readonly now: () => number;
   private readonly log: (message: string) => void;
+  private readonly onSignals: NonNullable<CodexSessionsOptions['onSignals']>;
+  private readonly onReviewer: NonNullable<CodexSessionsOptions['onReviewer']>;
 
   /**
    * @param roots From codexSessionRoots: nothing outside them is opened.
@@ -219,6 +269,41 @@ export class CodexSessions {
   ) {
     this.now = options.now ?? Date.now;
     this.log = options.log ?? (() => {});
+    this.onSignals = options.onSignals ?? (() => true);
+    this.onReviewer = options.onReviewer ?? (() => true);
+  }
+
+  /** A person's session, or a reviewer that names the session it works for. */
+  private static followed(header: CodexHeader | undefined): header is CodexHeader {
+    return (
+      header?.threadSource === 'user' ||
+      (header?.threadSource === 'guardian_review' && header.parentId !== undefined)
+    );
+  }
+
+  /** Tell what changed of a session's model and effort, or of a reviewer's turn. */
+  private report(tracked: Tracked): void {
+    const { turn, header } = tracked;
+    if (tracked.reviewer) {
+      if (turn.open) tracked.lingerUntil = this.now() + REVIEW_LINGER_MS;
+      const active = turn.open || this.now() < (tracked.lingerUntil ?? 0);
+      const state = active ? JSON.stringify([turn.model, turn.effort]) : '';
+      if (state === (tracked.reported ?? '')) return;
+      const shown = this.onReviewer({
+        parent: kindSessionId('codex', header.parentId ?? ''),
+        reviewer: header.id,
+        active,
+        model: turn.model,
+        effort: turn.effort,
+      });
+      if (shown || !active) tracked.reported = state;
+    } else if (turn.model) {
+      const state = JSON.stringify([turn.model, turn.effort]);
+      if (state === tracked.reported) return;
+      if (this.onSignals(kindSessionId('codex', header.id), turn.model, turn.effort)) {
+        tracked.reported = state;
+      }
+    }
   }
 
   start(): void {
@@ -334,7 +419,7 @@ export class CodexSessions {
         return;
       }
       header = end > 0 ? headerOf(head.slice(0, end)) : undefined;
-      if (header?.threadSource === 'user') {
+      if (CodexSessions.followed(header)) {
         const from = Math.max(0, size - TAIL_BYTES);
         tail = await this.readAt(file, from, size - from);
         // The window opens mid-line (or on the header): start at the next line.
@@ -343,7 +428,7 @@ export class CodexSessions {
     } catch {
       header = undefined;
     }
-    if (!header || header.threadSource !== 'user') {
+    if (!CodexSessions.followed(header)) {
       this.passedOver.set(file, size);
       return;
     }
@@ -360,18 +445,25 @@ export class CodexSessions {
         if (event.hook_event_name === 'PreToolUse') lastTool = event;
       }
     }
-    const tracked: Tracked = { header, offset: size, partial: '', turn, lastGrowth: now };
+    const reviewer = header.threadSource !== 'user';
+    const tracked: Tracked = { header, offset: size, partial: '', turn, lastGrowth: now, reviewer };
     this.tracked.set(file, tracked);
-    this.log(`Codex sessions: following ${path.basename(file)}`);
+    this.log(`Codex sessions: following ${path.basename(file)}${reviewer ? ' (a reviewer)' : ''}`);
+    if (reviewer) {
+      this.report(tracked);
+      return;
+    }
     // Any event brings the session into the office; these say how it stands.
     if (turn.open && turn.calls > 0 && lastTool) this.send(tracked, lastTool);
     else if (!turn.open) this.send(tracked, { hook_event_name: 'Stop' });
     else this.send(tracked, { hook_event_name: 'PostToolUse' });
+    this.report(tracked);
   }
 
   private async follow(file: string): Promise<void> {
     const tracked = this.tracked.get(file);
     if (!tracked) return;
+    this.report(tracked); // again, what the office could not take before
     const now = this.now();
     let size: number;
     try {
@@ -406,7 +498,9 @@ export class CodexSessions {
     const skipped = from !== tracked.offset;
     tracked.offset = size;
     // What was skipped may have ended the turn: it stands as what is read now says.
-    if (skipped) tracked.turn = { open: false, calls: 0 };
+    if (skipped) {
+      tracked.turn = { open: false, calls: 0, model: tracked.turn.model, effort: tracked.turn.effort };
+    }
     let stopped = false;
     const lines = (tracked.partial + chunk).split('\n');
     tracked.partial = lines.pop() ?? '';
@@ -419,18 +513,29 @@ export class CodexSessions {
         stopped = event.hook_event_name === 'Stop';
         this.send(tracked, event);
       }
+      // A turn begun and ended within this pass was a turn all the same.
+      if (tracked.reviewer && tracked.turn.open) tracked.lingerUntil = now + REVIEW_LINGER_MS;
     }
     if (skipped && !tracked.turn.open && !stopped) this.send(tracked, { hook_event_name: 'Stop' });
+    this.report(tracked);
   }
 
   private end(file: string): void {
     const tracked = this.tracked.get(file);
     if (!tracked) return;
     this.tracked.delete(file);
+    if (tracked.reviewer) {
+      // Gone with a turn shown: its helper leaves.
+      tracked.turn.open = false;
+      tracked.lingerUntil = 0;
+      this.report(tracked);
+      return;
+    }
     this.send(tracked, { hook_event_name: 'SessionEnd', reason: 'exit' });
   }
 
   private send(tracked: Tracked, event: CodexEvent): void {
+    if (tracked.reviewer) return; // a reviewer is no agent: it posts no event
     this.emit({
       ...event,
       agent_kind: 'codex',

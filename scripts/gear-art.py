@@ -13,6 +13,12 @@ Each model family is a class with its own outline, and the effort adds to it:
     opus    knight: helm, plate, shield and sword  +1 plume        +2 cape
     fable   mage: pointed hat, robe and staff      +1 hat star     +2 cape
 
+Codex's models are classes of their own, in teal and night blue, so that a
+Codex agent is told from a Claude one at a glance:
+
+    codexmini  guardian: tunic and a round shield on the back  +1 headband  +2 cape
+    codex      ninja: hood, mask, dark suit and a katana       +1 forehead plate  +2 cape
+
 <tier>_<n>.png is the whole gear with n additions, one 128x96 sheet (8 frames x
 3 rows of 16x32: front, back, right) laid over the finished character
 (characters/renderer.ts). <tier>_hide.png marks where the character's hair and
@@ -43,7 +49,12 @@ IRON = ['#232a33', '#56637a', '#74839b', '#aab8cc']
 GREEN = ['#1f3d1c', '#3f7a36', '#57a14a', '#8fd07a']
 PURPLE = ['#2a1250', '#5a2ea0', '#7b45d0', '#b58cff']
 GOLD = ['#6b4a12', '#c8962a', '#e8bb3e', '#fff2a8']
+NIGHT = ['#0b1220', '#1c2b45', '#2a3f63', '#4d6a9a']
+TEAL = ['#0c3b3d', '#16797c', '#22a6a3', '#7df0e6']
+CYAN = '#7fe9ff'
 CAPES = {
+    'codexmini': ['#0c3b3d', '#16797c', '#22a6a3'],
+    'codex': ['#0b1220', '#16797c', '#22a6a3'],
     'haiku': ['#4a1616', '#a03030', '#c84a4a'],
     'sonnet': ['#16301a', '#2f6a35', '#4c9150'],
     'opus': ['#14244d', '#2c4fa3', '#4f78d6'],
@@ -136,8 +147,8 @@ def helm():
     }
 
 
-def hood():
-    o, s, b, l = GREEN
+def hood(ramp=None):
+    o, s, b, l = ramp or GREEN
     return {
         'colors': {'o': o, 's': s, 'b': b, 'l': l},
         FRONT: (2, 0, [
@@ -237,9 +248,9 @@ def hat():
     }
 
 
-def sword():
+def sword(colors=None):
     return {
-        'colors': {'o': STEEL[0], 'b': STEEL[2], 'l': STEEL[3], 'g': STEEL[1], 'w': WOOD},
+        'colors': colors or {'o': STEEL[0], 'b': STEEL[2], 'l': STEEL[3], 'g': STEEL[1], 'w': WOOD},
         # Across the back: from the front, the hilt over one shoulder and the
         # tip by the other hip.
         FRONT: [
@@ -264,10 +275,10 @@ def sword():
     }
 
 
-def shield():
-    o, s, b, l = STEEL
+def shield(ramp=None, emblem=RED):
+    o, s, b, l = ramp or STEEL
     return {
-        'colors': {'o': o, 's': s, 'b': b, 'l': l, 'r': RED},
+        'colors': {'o': o, 's': s, 'b': b, 'l': l, 'r': emblem},
         BACK: (4, 17, [
             '.oooooo.',
             'oblbbbso',
@@ -384,6 +395,27 @@ def cape(ramp):
     }
 
 
+# The ninja's mask: over the lower face, in the hood's opening.
+MASK = {
+    'colors': {'b': NIGHT[2], 's': NIGHT[1]},
+    FRONT: (4, 12, ['bbbbbbbb', 'sbbbbbbs', '.ssssss.']),
+    SIDE: (8, 15, ['bbbb', 'bbbs', 'sss.']),
+}
+# Its first effort step: a plate on the forehead, lit.
+FOREHEAD_PLATE = {
+    'colors': {'m': STEEL[2], 'o': STEEL[0], 'c': CYAN},
+    FRONT: (5, 5, ['omccmo', '.oooo.']),
+    BACK: (5, 5, ['oooooo']),
+    SIDE: (8, 8, ['omcm', '.ooo']),
+}
+
+
+def headband(band=RED, dark=DARK_RED):
+    piece = {key: value for key, value in HEADBAND.items()}
+    piece['colors'] = {'r': band, 'd': dark}
+    return piece
+
+
 HEADBAND = {
     'colors': {'r': RED, 'd': DARK_RED},
     FRONT: [(2, 5, ['drrrrrrrrrrd']), (13, 6, ['r', 'd'])],
@@ -468,6 +500,13 @@ def sheets():
         'sonnet': ([recolour(shirt, GREEN)], [bow()], hood(), FEATHER),
         'opus': ([recolour(jeans, IRON), recolour(sleeves, STEEL)], [sword(), shield()], helm(), PLUME),
         'fable': ([recolour(skirt, PURPLE), recolour(sleeves, PURPLE)], [staff()], hat(), HAT_STAR),
+        'codexmini': ([recolour(shirt, TEAL)], [shield(TEAL, CYAN)], None, headband(TEAL[2], TEAL[0])),
+        'codex': (
+            [recolour(jeans, NIGHT), recolour(sleeves, NIGHT)],
+            [sword({'o': NIGHT[0], 'b': STEEL[2], 'l': STEEL[3], 'g': TEAL[2], 'w': TEAL[1]}), MASK],
+            hood(NIGHT),
+            FOREHEAD_PLATE,
+        ),
     }
     out = {}
     for tier, (body, carried, headgear, addition) in classes.items():

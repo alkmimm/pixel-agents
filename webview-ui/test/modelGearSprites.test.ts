@@ -43,7 +43,14 @@ function sync(profiles: readonly CharacterProfile[]): () => void {
 const front = (palette: number, repeat: number, gear: number) =>
   JSON.stringify(getCharacterSprites(palette, repeat, false, gear).walk[Direction.DOWN][0]);
 
-const MODELS = ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-2'];
+const MODELS = [
+  'claude-haiku-5-5',
+  'claude-sonnet-5-5',
+  'claude-opus-5-5',
+  'claude-fable-5-2',
+  'codex-auto-review',
+  'gpt-6.1-sol',
+];
 const EFFORTS = ['medium', 'high', 'xhigh'];
 const GEARS = MODELS.flatMap((m) => EFFORTS.map((e) => modelGear(m, e)));
 
@@ -58,8 +65,15 @@ it('every gear has its own sheet in the wardrobe, and a headgear its hair mask',
     expect(files.has(sheet), sheet).toBe(true);
     if (hide) expect(files.has(hide), hide).toBe(true);
   }
-  // The squire is bare-headed; the others cover the hair.
-  expect(MODELS.map((m) => gearArt(modelGear(m))!.hide !== undefined)).toEqual([false, true, true, true]);
+  // The squire and Codex's guardian are bare-headed; the others cover the hair.
+  expect(MODELS.map((m) => gearArt(modelGear(m))!.hide !== undefined)).toEqual([
+    false,
+    true,
+    true,
+    true,
+    false,
+    true,
+  ]);
   // No gear art is left over: the wardrobe refuses a PNG it does not expect.
   const expected = new Set(
     GEARS.flatMap((g) => Object.values(gearArt(g)!)).filter((art) => art !== undefined),

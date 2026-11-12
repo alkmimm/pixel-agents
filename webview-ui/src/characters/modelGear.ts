@@ -7,6 +7,8 @@
  *   sonnet  archer: hood, tunic, bow and quiver    high: feather    top: + cape
  *   opus    knight: helm, plate, shield and sword  high: plume      top: + cape
  *   fable   mage: pointed hat, robe and staff      high: hat star   top: + cape
+ *   codexmini  guardian: teal tunic, round shield  high: headband   top: + cape
+ *   codex      ninja: hood, mask, suit, katana     high: forehead plate  top: + cape
  *
  * Like a repeat's clothes (repeatClothes.ts), it is a copy of the profile made
  * for drawing: the saved cast is never changed, and the character keeps its

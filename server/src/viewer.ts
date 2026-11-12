@@ -34,6 +34,7 @@ import { FileStateAdapter } from './fileStateAdapter.js';
 import { filterHookPayload } from './providers/hook/claude/hooks/hookPayloadFilter.js';
 import { claudeProvider } from './providers/index.js';
 import { PixelAgentsServer } from './server.js';
+import { broadcastSignalsIfChanged, signalsOf } from './sessionSignals.js';
 import { PtySessionManager } from './terminal/ptySessionManager.js';
 
 /** The viewer's fixed default port: one well-known local address to bookmark. */
@@ -157,10 +158,54 @@ async function main(): Promise<void> {
   // only when the service names the roots. Every event goes through the H4
   // filter, like one posted by another agent's hook.
   const codexRoots = codexSessionRoots(process.env);
+  // Stage 2: a session's model and effort go out as the agent's signals, and a
+  // reviewer session shows as a helper of its parent while it has a turn under
+  // way, with the subagent* messages the office already knows.
+  const codexAgent = (sessionId: string) => {
+    for (const [id, agent] of store) if (agent.sessionId === sessionId) return { id, agent };
+    return undefined;
+  };
   const codex = new CodexSessions(
     codexRoots,
     (event) => runtime.handleHookEvent('codex', filterHookPayload(event)),
-    { log: (message) => console.log(`[Pixel Agents viewer] ${message}`) },
+    {
+      log: (message) => console.log(`[Pixel Agents viewer] ${message}`),
+      onSignals: (sessionId, model, effort) => {
+        const found = codexAgent(sessionId);
+        if (!found) return false;
+        const signals = signalsOf(found.agent);
+        signals.model = model;
+        signals.effort = effort;
+        broadcastSignalsIfChanged(found.agent, store);
+        return true;
+      },
+      onReviewer: (review) => {
+        const lead = codexAgent(review.parent);
+        if (!lead) return false;
+        const parentToolId = `codex-review:${review.reviewer}`;
+        if (!review.active) {
+          store.broadcast({ type: 'subagentClear', id: lead.id, parentToolId });
+          return true;
+        }
+        store.broadcast({
+          type: 'subagentToolStart',
+          id: lead.id,
+          parentToolId,
+          toolId: parentToolId,
+          status: 'Reviewing approvals',
+        });
+        if (review.model) {
+          store.broadcast({
+            type: 'subagentSignals',
+            id: lead.id,
+            parentToolId,
+            model: review.model,
+            effort: review.effort,
+          });
+        }
+        return true;
+      },
+    },
   );
   codex.start();
 

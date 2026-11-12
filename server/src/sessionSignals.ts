@@ -64,8 +64,8 @@ export const ERROR_STREAK_THRESHOLD = 3;
 export const REPEAT_THRESHOLD = 4;
 const MODE_PATTERN = /^[A-Za-z]{1,32}$/;
 /** A model id ("claude-opus-5-5", "claude-fable-5-2[1m]"); "<synthetic>" does not match. */
-const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,63}$/;
-const EFFORT_PATTERN = /^[a-z]{1,16}$/;
+export const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,63}$/;
+export const EFFORT_PATTERN = /^[a-z]{1,16}$/;
 
 /**
  * The model and effort of a reply of the transcript's own agent. In a session's
