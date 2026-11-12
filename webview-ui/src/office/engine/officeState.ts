@@ -247,6 +247,8 @@ export class OfficeState {
   /** pixel-agents-secure (local): idle agents leave their desks more (shorter rests,
    *  more walks, further from their own room). */
   roam = false;
+  /** pixel-agents-secure (local): why the last sitAsGuest was refused (diagnostics), or null. */
+  guestRefusal: string | null = null;
   /** pixel-agents-secure (local): the office's director (viewer/officeDirector.ts)
    *  decides when and where idle agents stroll, and when they go back to their
    *  chairs; the engine's own random stroll is off. It still walks them, sits
@@ -1786,8 +1788,12 @@ export class OfficeState {
   sitAsGuest(id: number, seatUid: string, sec: number, facing: Direction | null = null): boolean {
     const ch = this.characters.get(id);
     const seat = this.seats.get(seatUid);
-    if (!this.atLeisure(ch) || !seat || seat.assigned) return false;
-    if (!this.freeSeats().some((s) => s.uid === seatUid)) return false;
+    this.guestRefusal = !this.atLeisure(ch)
+      ? `agent busy (${ch ? `state ${ch.state}, active ${ch.isActive}` : 'gone'})`
+      : !seat || seat.assigned || !this.freeSeats().some((s) => s.uid === seatUid)
+        ? 'seat taken or gone'
+        : null;
+    if (this.guestRefusal || !this.atLeisure(ch) || !seat) return false;
     // A seat's tile is furniture: open for the way there, like one's own chair.
     const key = `${seat.seatCol},${seat.seatRow}`;
     const wasBlocked = this.blockedTiles.delete(key);
@@ -1795,7 +1801,10 @@ export class OfficeState {
       findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles),
     );
     if (wasBlocked) this.blockedTiles.add(key);
-    if (path.length === 0) return false;
+    if (path.length === 0) {
+      this.guestRefusal = `no way from ${ch.tileCol},${ch.tileRow} to ${key}`;
+      return false;
+    }
     ch.path = path;
     ch.moveProgress = 0;
     ch.state = CharacterState.WALK;

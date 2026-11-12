@@ -252,7 +252,7 @@ function run(sc: Scenario): { summary: Record<string, unknown>; map: string } {
         if (!nowTrip) {
           const mate = snap.mate === undefined ? undefined : trips.get(snap.mate);
           sample(
-            `#${id} desistiu após cumprimentar (${snap.plan}); parceiro #${snap.mate} ${mate ? `seguiu (${mate.stage})` : 'também não'}; em ${ch?.tileCol},${ch?.tileRow}`,
+            `#${id} desistiu após cumprimentar (${snap.plan}); parceiro #${snap.mate} ${mate ? `seguiu (${mate.stage})` : 'também não'}; em ${ch?.tileCol},${ch?.tileRow}; estado ${ch?.state}; recusa: ${os.guestRefusal}`,
           );
         }
       } else if (snap.stage === 'sip') {
