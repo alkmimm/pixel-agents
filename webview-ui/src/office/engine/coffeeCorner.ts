@@ -155,6 +155,23 @@ export function robotIsOut(robot: Robot): boolean {
   return robot.stops.length > 0 || robot.path.length > 0 || robot.waitSec > 0;
 }
 
+/** pixel-agents-secure (local): move it, and everything it is going to, by
+ *  `by` tiles (the office moved: rooms opened over it). */
+export function shiftRobot(robot: Robot, by: Tile): void {
+  const move = (t: Tile): Tile => ({ col: t.col + by.col, row: t.row + by.row });
+  robot.x += by.col * TILE_SIZE;
+  robot.y += by.row * TILE_SIZE;
+  robot.tileCol += by.col;
+  robot.tileRow += by.row;
+  robot.dock = move(robot.dock);
+  robot.path = robot.path.map(move);
+  robot.stops = robot.stops.map(move);
+  robot.cleanAt = robot.cleanAt ? move(robot.cleanAt) : null;
+  robot.reachTo = robot.reachTo
+    ? { x: robot.reachTo.x + by.col * TILE_SIZE, y: robot.reachTo.y + by.row * TILE_SIZE }
+    : null;
+}
+
 /**
  * Send it on a round: these stops, then back to its dock. Not while it is out.
  * `cleanAt` is the stop by the coffee table, and `reachTo` the table itself

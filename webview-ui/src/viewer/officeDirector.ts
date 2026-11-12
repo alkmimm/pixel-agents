@@ -289,13 +289,36 @@ export class OfficeDirector {
     const hasMood = (id: number) => (this.moods.get(id)?.until ?? 0) > now;
 
     if (os.getLayout() !== this.spotsOf) {
+      const was = this.spotsOf
+        ? { machine: this.machineAt, table: this.corner.table?.at ?? null }
+        : null;
       this.spotsOf = os.getLayout();
       // Only where one can walk to: floor closed off by furniture is no place to stand.
       this.corner = coffeeCorner(this.spotsOf.furniture, os.reachableTiles);
       const m = this.spotsOf.furniture.find((f) => f.type.split(':')[0] === 'COFFEE_MACHINE');
       this.machineAt = m ? { col: m.col, row: m.row } : null;
-      trips.clear();
-      this.clearOffice();
+      // Rooms opened or closed and the rest moved along (officeState.applyRooms): the
+      // same coffee corner, moved, and what is under way goes on. Anything else is
+      // a new office, and what the director left in the old one goes with it.
+      const shift = os.carriedShift(this.spotsOf);
+      const moved = (t: Tile): Tile =>
+        shift ? { col: t.col + shift.col, row: t.row + shift.row } : t;
+      const same = (a: Tile | null, b: Tile | null): boolean =>
+        a === null || b === null ? a === b : moved(a).col === b.col && moved(a).row === b.row;
+      if (
+        shift !== null &&
+        was !== null &&
+        same(was.machine, this.machineAt) &&
+        same(was.table, this.corner.table?.at ?? null)
+      ) {
+        for (const trip of trips.values()) {
+          trip.spot = moved(trip.spot);
+          if (trip.table) trip.table = moved(trip.table);
+        }
+      } else {
+        trips.clear();
+        this.clearOffice();
+      }
     }
     const corner = this.corner;
     // The director is in charge of who strolls where: the engine's own stroll is off

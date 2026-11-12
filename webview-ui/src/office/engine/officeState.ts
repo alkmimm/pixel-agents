@@ -60,6 +60,7 @@ import {
   type Robot,
   robotIsOut,
   type SceneExtra,
+  shiftRobot,
   updateRobot,
 } from './coffeeCorner.js';
 import {
@@ -162,6 +163,9 @@ export class OfficeState {
   /** For each walkable tile, the connected area it is in; and the largest one. */
   private areaOf = new Map<string, number>();
   private mainArea = -1;
+  /** pixel-agents-secure (local): the layout applyRooms last drew without
+   *  putting anyone in place, and by how much what was in the office moved. */
+  private carried: { layout: OfficeLayout; shift: Tile } | null = null;
   characters: Map<number, Character> = new Map();
   pets: Pet[] = [];
   /** Accumulated time for furniture animation frame cycling */
@@ -278,6 +282,7 @@ export class OfficeState {
   /** Rebuild all derived state from a new layout. Reassigns existing characters.
    *  @param shift Optional pixel shift to apply when grid expands left/up */
   rebuildFromLayout(layout: OfficeLayout, shift?: { col: number; row: number }): void {
+    this.carried = null;
     this.layout = layout;
     this.tileMap = layoutToTileMap(layout);
     this.seats = layoutToSeats(layout.furniture);
@@ -657,9 +662,10 @@ export class OfficeState {
   ): void {
     const before = new Map<
       number,
-      Pick<Character, 'x' | 'y' | 'tileCol' | 'tileRow' | 'dir' | 'seatId'>
+      Pick<Character, 'x' | 'y' | 'tileCol' | 'tileRow' | 'dir' | 'seatId'> & { dest?: Tile }
     >();
     for (const ch of this.characters.values()) {
+      const last = ch.state === CharacterState.WALK ? ch.path[ch.path.length - 1] : undefined;
       before.set(ch.id, {
         x: ch.x + shift.col * TILE_SIZE,
         y: ch.y + shift.row * TILE_SIZE,
@@ -667,6 +673,7 @@ export class OfficeState {
         tileRow: ch.tileRow + shift.row,
         dir: ch.dir,
         seatId: ch.seatId,
+        ...(last ? { dest: { col: last.col + shift.col, row: last.row + shift.row } } : {}),
       });
     }
     this.roomAreas = roomAreas;
@@ -688,7 +695,7 @@ export class OfficeState {
       ch.tileRow = was.tileRow;
       ch.dir = was.dir;
       if (ch.state === CharacterState.WALK) {
-        // The way it was walking may be gone: stop here and decide again.
+        // The way it was walking may be gone: stopped for now, and on its way again below.
         ch.path = [];
         ch.moveProgress = 0;
       }
@@ -707,9 +714,47 @@ export class OfficeState {
           ch.moveProgress = 0;
         }
       }
+      if (ch.state === CharacterState.WALK && was.dest) {
+        // It goes on to where it was going (moved along with everything), by a way
+        // over the new floor; with none, it stops where it is and the director decides.
+        ch.path = this.wayTo(ch, was.dest);
+      }
     }
+    // The cups on the table and the robot move along too.
+    if (shift.col !== 0 || shift.row !== 0) {
+      const dx = shift.col * TILE_SIZE;
+      const dy = shift.row * TILE_SIZE;
+      this.cups = this.cups.map((c) => ({ x: c.x + dx, y: c.y + dy, zY: c.zY + dy }));
+      if (this.robot) shiftRobot(this.robot, shift);
+    }
+    // Nobody was put in place: what goes on in the office may go on (officeDirector).
+    if (!snap) this.carried = { layout, shift: { col: shift.col, row: shift.row } };
 
     this.moveIntoRooms(snap);
+  }
+
+  /** pixel-agents-secure (local): when `layout` is the one applyRooms drew
+   *  without putting anyone in place, by how much what was in the office moved;
+   *  else null (a new office altogether). */
+  carriedShift(layout: OfficeLayout): Tile | null {
+    return this.carried?.layout === layout ? { ...this.carried.shift } : null;
+  }
+
+  /** A way for a character to a tile; its own chair and the seat it goes to as a
+   *  guest are furniture, open for the way there. */
+  private wayTo(ch: Character, dest: Tile): Tile[] {
+    const guest = ch.guestSeat ? this.seats.get(ch.guestSeat.uid) : undefined;
+    const key = `${dest.col},${dest.row}`;
+    const opened =
+      guest !== undefined &&
+      guest.seatCol === dest.col &&
+      guest.seatRow === dest.row &&
+      this.blockedTiles.delete(key);
+    const path = this.withOwnSeatUnblocked(ch, () =>
+      findPath(ch.tileCol, ch.tileRow, dest.col, dest.row, this.tileMap, this.blockedTiles),
+    );
+    if (opened) this.blockedTiles.add(key);
+    return path;
   }
 
   /** Whoever has a room and sits elsewhere moves in, while it has a free
