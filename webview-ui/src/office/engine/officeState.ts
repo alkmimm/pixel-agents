@@ -46,6 +46,7 @@ import { CharacterState, Direction, PetState, TILE_SIZE } from '../types.js';
 import { tickBlink } from './blink.js';
 import {
   createCharacter,
+  DEFAULT_PACE,
   restInChair,
   updateCharacter,
   updateHelper,
@@ -108,6 +109,19 @@ function ringsAround(home: Tile): (tile: Tile) => number {
 }
 
 const NO_EXTRAS: SceneExtra[] = [];
+/** pixel-agents-secure (local): with `roam`, a rest in the chair lasts this share of the usual... */
+const ROAM_REST_SCALE = 0.35;
+/** ...a stroll has more walks in it... */
+const ROAM_PACE: WanderPace = { ...DEFAULT_PACE, movesMin: 4, movesMax: 8, restScale: ROAM_REST_SCALE };
+const ROOM_ROAM_PACE: WanderPace = {
+  pauseMinSec: ROOM_WANDER_PAUSE_MIN_SEC,
+  pauseMaxSec: ROOM_WANDER_PAUSE_MAX_SEC,
+  movesMin: 2,
+  movesMax: 5,
+  restScale: ROAM_REST_SCALE,
+};
+/** ...and, with rooms, leaves its own room more often than it stays (0.7 without). */
+const ROAM_HOME_CHANCE = 0.35;
 
 export class OfficeState {
   layout: OfficeLayout;
@@ -198,6 +212,9 @@ export class OfficeState {
    *  robot (coffeeCorner.ts; viewer/useOfficeLife.ts decides when). */
   cups: Cup[] = [];
   robot: Robot | null = null;
+  /** pixel-agents-secure (local): idle agents leave their desks more (shorter rests,
+   *  more walks, further from their own room). */
+  roam = false;
 
   /** World-space point the camera drifts to while the greeter is up
    *  (the bubble overlay recomputes it every frame: the combined center of the
@@ -380,7 +397,8 @@ export class OfficeState {
     if (this.roomTiles.size === 0) return this.walkableTiles;
     const label = ch.directoryName ? this.roomAreas[ch.directoryName]?.[0] : undefined;
     const home = label !== undefined ? this.roomTiles.get(label) : undefined;
-    if (home && home.length > 0 && Math.random() < ROOM_WANDER_HOME_CHANCE) return home;
+    const homeChance = this.roam ? ROAM_HOME_CHANCE : ROOM_WANDER_HOME_CHANCE;
+    if (home && home.length > 0 && Math.random() < homeChance) return home;
     return this.commonTiles.length > 0 ? this.commonTiles : this.walkableTiles;
   }
 
@@ -404,7 +422,7 @@ export class OfficeState {
     ch.state = CharacterState.TYPE;
     ch.frame = 0;
     ch.frameTimer = 0;
-    if (!ch.isActive) restInChair(ch);
+    if (!ch.isActive) restInChair(ch, this.roam ? ROAM_REST_SCALE : 1);
   }
 
   /**
@@ -1177,8 +1195,9 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (!ch) return;
     ch.isActive = false;
-    if (ch.seatId && ch.state === CharacterState.TYPE) restInChair(ch);
-    else ch.seatTimer = 0;
+    if (ch.seatId && ch.state === CharacterState.TYPE) {
+      restInChair(ch, this.roam ? ROAM_REST_SCALE : 1);
+    } else ch.seatTimer = 0;
     this.rebuildFurnitureInstances();
   }
 
@@ -1475,6 +1494,85 @@ export class OfficeState {
 
   /** Keep an idle, standing agent where it is for `sec` seconds, no more; with
    *  `thenHome`, its next walk is back to its seat. */
+  /** How idle agents stroll: the office's usual pace, or more of it with `roam`. */
+  private pace(): WanderPace | undefined {
+    if (this.roomTiles.size > 0) return this.roam ? ROOM_ROAM_PACE : ROOM_PACE;
+    return this.roam ? ROAM_PACE : undefined;
+  }
+
+  /** The seats no agent has and no one sits in as a guest, with their tile. */
+  freeSeats(): Array<{ uid: string; col: number; row: number }> {
+    const taken = new Set<string>();
+    for (const ch of this.characters.values()) {
+      if (ch.guestSeat) taken.add(ch.guestSeat.uid);
+    }
+    const out: Array<{ uid: string; col: number; row: number }> = [];
+    for (const [uid, seat] of this.seats) {
+      if (!seat.assigned && !taken.has(uid)) out.push({ uid, col: seat.seatCol, row: seat.seatRow });
+    }
+    return out;
+  }
+
+  /**
+   * Send an agent at leisure to sit a while in a seat that is not its own (a
+   * sofa, a pouf), facing `facing` or the seat's own way. It gets up by itself
+   * after `sec`, or at once when its agent goes back to work.
+   */
+  sitAsGuest(id: number, seatUid: string, sec: number, facing: Direction | null = null): boolean {
+    const ch = this.characters.get(id);
+    const seat = this.seats.get(seatUid);
+    if (!this.atLeisure(ch) || !seat || seat.assigned) return false;
+    if (!this.freeSeats().some((s) => s.uid === seatUid)) return false;
+    // A seat's tile is furniture: open for the way there, like one's own chair.
+    const key = `${seat.seatCol},${seat.seatRow}`;
+    const wasBlocked = this.blockedTiles.delete(key);
+    const path = this.withOwnSeatUnblocked(ch, () =>
+      findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles),
+    );
+    if (wasBlocked) this.blockedTiles.add(key);
+    if (path.length === 0) return false;
+    ch.path = path;
+    ch.moveProgress = 0;
+    ch.state = CharacterState.WALK;
+    ch.frame = 0;
+    ch.frameTimer = 0;
+    ch.seatTimer = 0;
+    ch.guestSeat = { uid: seatUid, sec, seated: false, facing };
+    return true;
+  }
+
+  /** One frame of a guest seat: sit on arriving, leave it when called to work or done. */
+  private tickGuestSeat(ch: Character): void {
+    const guest = ch.guestSeat;
+    if (!guest) return;
+    const seat = this.seats.get(guest.uid);
+    if (!seat || ch.isActive) {
+      // Back to work (or the seat is gone): up at once, the usual way to its desk.
+      ch.guestSeat = null;
+      if (guest.seated) {
+        ch.state = CharacterState.IDLE;
+        ch.seatTimer = 0;
+        ch.wanderTimer = 0;
+      }
+      return;
+    }
+    if (guest.seated) {
+      if (ch.state !== CharacterState.TYPE) ch.guestSeat = null; // it got up
+      return;
+    }
+    if (ch.state === CharacterState.WALK) return;
+    if (ch.tileCol === seat.seatCol && ch.tileRow === seat.seatRow) {
+      ch.state = CharacterState.TYPE;
+      ch.dir = guest.facing ?? seat.facingDir;
+      ch.seatTimer = guest.sec;
+      ch.frame = 0;
+      ch.frameTimer = 0;
+      guest.seated = true;
+    } else {
+      ch.guestSeat = null; // it stopped somewhere else
+    }
+  }
+
   /** Put a cup on the coffee table at this tile. False when the table is full. */
   placeCup(table: { col: number; row: number }): boolean {
     if (this.cups.length >= MAX_CUPS) return false;
@@ -1605,9 +1703,10 @@ export class OfficeState {
             this.seats,
             this.tileMap,
             this.blockedTiles,
-            this.roomTiles.size > 0 ? ROOM_PACE : undefined,
+            this.pace(),
           ),
         );
+        this.tickGuestSeat(ch);
       }
 
       // Tick bubble timer for waiting bubbles
@@ -1624,9 +1723,12 @@ export class OfficeState {
       this.characters.delete(id);
     }
     tickLiveliness(this.characters.values(), dt, this.liveliness);
-    // The robot that finishes at the table takes the cups with it.
-    if (this.robot && updateRobot(this.robot, dt, this.tileMap, this.blockedTiles)) {
-      this.cups = [];
+    // The robot at the table takes the cups, one at a time.
+    if (
+      this.robot &&
+      updateRobot(this.robot, dt, this.tileMap, this.blockedTiles, this.cups.length)
+    ) {
+      this.cups = this.cups.slice(0, -1);
     }
 
     // A PC turns on when its agent sits down to work, not when the turn starts.

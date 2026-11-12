@@ -368,6 +368,11 @@ function composeCompact(base: OfficeLayout, specs: readonly RoomState[]): Compos
   // row). These two are the only furniture on a wall (ON_LOUNGE_WALL).
   add('neon-cafe', NEON_SIGN, tableCol, loungeTop - 2);
   add('maquina-cafe', COFFEE_MACHINE, tableCol + 2, loungeTop - 1);
+  // The game corner, at the foot of the lounge: the TV on its cabinet (its
+  // upper tile is only picture: one walks behind it) and two poufs facing it.
+  add('videogame', 'VIDEO_GAME', ROOM_PITCH - 2, loungeBottom - 2);
+  add('pufe-1', 'POUF', ROOM_PITCH - 2, loungeBottom);
+  add('pufe-2', 'POUF', ROOM_PITCH - 1, loungeBottom);
   add('planta-1', PLANT, 1, loungeTop);
   add('planta-2', 'PLANT_2', ROOM_PITCH - 1, loungeTop);
   add('lixeira', 'BIN', 1, loungeBottom);

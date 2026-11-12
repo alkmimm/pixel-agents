@@ -8,25 +8,30 @@ import { useCallback, useEffect, useRef } from 'react';
 import { createRobot, robotIsOut, sendRobot } from '../office/engine/coffeeCorner.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 import type { OfficeLayout, ToolActivity } from '../office/types.js';
-import { CharacterState } from '../office/types.js';
+import { CharacterState, Direction, TILE_SIZE } from '../office/types.js';
 import { isWaiting } from './agentGroups.js';
 import { agentStatusView } from './agentStatus.js';
 import {
   CHAT_SEC,
   chatPairs,
   COFFEE_SIP_SEC,
+  COFFEE_SIT_SEC,
   coffeeChance,
   type CoffeeCorner,
   coffeeCorner,
   drinkingSpots,
   followTurn,
+  GAME_SEC,
+  gameChance,
   isSleepy,
   MOOD,
   POUR_SEC,
   ROBOT_CUPS_FULL,
   ROBOT_EVERY_MS,
   robotRound,
+  seatAtTable,
   type TurnMemo,
+  wayTo,
 } from './officeLife.js';
 
 const LOOK_MS = 1_000;
@@ -39,6 +44,12 @@ const PET_VISIT_MAX_SEC = 40;
 /** The cleaning robot's first round after the option is turned on. */
 const ROBOT_FIRST_MS = 60_000;
 const POUR_HOLD_SLACK_SEC = 3;
+const FACING = {
+  up: Direction.UP,
+  down: Direction.DOWN,
+  left: Direction.LEFT,
+  right: Direction.RIGHT,
+} as const;
 
 type Tile = { col: number; row: number };
 
@@ -46,7 +57,9 @@ type Tile = { col: number; row: number };
  *  machine it starts at 'walk': straight to where one drinks. */
 interface Trip {
   spot: Tile;
-  stage: 'machine' | 'pour' | 'walk' | 'sip';
+  stage: 'machine' | 'pour' | 'walk' | 'sip' | 'to-game' | 'play';
+  /** It goes to (or is in) a seat for this, not a place to stand. */
+  seated?: boolean;
   /** When the pour or the sip ends (ms). */
   until?: number;
   /** The table the cup is left on, when it is drunk at one. */
@@ -62,6 +75,10 @@ export interface LifeParts {
   pet: boolean;
   /** The cleaning robot. */
   robot: boolean;
+  /** The video game, from a pouf. */
+  game: boolean;
+  /** Idle agents leave their desks more. */
+  roam: boolean;
 }
 const ALL_PARTS: LifeParts = {
   coffee: true,
@@ -70,6 +87,8 @@ const ALL_PARTS: LifeParts = {
   chat: true,
   pet: true,
   robot: true,
+  game: true,
+  roam: true,
 };
 
 export function useOfficeLife(
@@ -93,12 +112,13 @@ export function useOfficeLife(
       const os = getOfficeState();
       os.cups = [];
       os.robot = null;
+      os.roam = false;
       for (const ch of os.characters.values()) ch.carrying = false;
     };
     const memos = new Map<number, TurnMemo>();
     const trips = new Map<number, Trip>();
     const petVisits = new Map<string, number>();
-    let corner: CoffeeCorner = { machine: [], table: null, sip: [], dock: null };
+    let corner: CoffeeCorner = { machine: [], table: null, sip: [], dock: null, game: null };
     let spotsOf: OfficeLayout | null = null;
     let lastLook = Date.now();
     // The first round comes soon, so the robot is seen at work.
@@ -122,6 +142,8 @@ export function useOfficeLife(
         trips.clear();
         clearOffice();
       }
+
+      os.roam = on.roam;
 
       const alive = new Set(ids);
       for (const id of [...memos.keys()]) if (!alive.has(id)) memos.delete(id);
@@ -147,34 +169,53 @@ export function useOfficeLife(
         // A coffee trip under way.
         const trip = trips.get(id);
         if (trip) {
-          const arrived =
-            ch.tileCol === trip.spot.col &&
-            ch.tileRow === trip.spot.row &&
-            ch.state === CharacterState.IDLE;
+          // At a seat: sat down in it. At a place to stand: standing there.
+          const arrived = trip.seated
+            ? ch.guestSeat?.seated === true
+            : ch.tileCol === trip.spot.col &&
+              ch.tileRow === trip.spot.row &&
+              ch.state === CharacterState.IDLE;
+          // On the way to a seat it gave up on (taken, or no way there).
+          const lostSeat = trip.seated === true && ch.guestSeat === null;
           const end = () => {
             trips.delete(id);
             ch.carrying = false;
           };
           const sip = () => {
             trip.stage = 'sip';
-            trip.until = now + COFFEE_SIP_SEC * 1000;
-            os.holdStill(id, COFFEE_SIP_SEC, true);
-            mood(id, MOOD.coffee, COFFEE_SIP_SEC * 1000);
+            // Seated, it drinks until just before it gets up by itself.
+            const sec = trip.seated ? COFFEE_SIT_SEC - 1 : COFFEE_SIP_SEC;
+            trip.until = now + sec * 1000;
+            if (!trip.seated) os.holdStill(id, COFFEE_SIP_SEC, true);
+            mood(id, MOOD.coffee, sec * 1000);
           };
           if (ch.isActive) {
             // Called back to work: the cup is forgotten.
             end();
             moods.current.delete(id);
+          } else if (trip.stage === 'play') {
+            if (now >= (trip.until ?? 0) || ch.guestSeat === null) end();
           } else if (trip.stage === 'sip') {
-            if (now >= (trip.until ?? 0)) {
+            if (now >= (trip.until ?? 0) || lostSeat) {
+              // Getting up, the cup stays on the table.
               if (ch.carrying && trip.table) os.placeCup(trip.table);
               end();
             }
           } else if (trip.stage === 'pour') {
             if (now >= (trip.until ?? 0)) {
               ch.carrying = true;
+              // A free sofa seat at the table, to sit with the cup.
+              const table = corner.table?.at;
+              const seat = table
+                ? pick(os.freeSeats().filter((s) => seatAtTable(s, table)))
+                : undefined;
               const to = pick(drinkingSpots(corner));
-              if (to && os.sendOnErrand(id, to.col, to.row)) {
+              if (seat && table && os.sitAsGuest(id, seat.uid, COFFEE_SIT_SEC)) {
+                trip.spot = { col: seat.col, row: seat.row };
+                trip.stage = 'walk';
+                trip.seated = true;
+                trip.table = table;
+              } else if (to && os.sendOnErrand(id, to.col, to.row)) {
                 trip.spot = to;
                 trip.stage = 'walk';
                 trip.table = corner.table?.at;
@@ -182,8 +223,14 @@ export function useOfficeLife(
                 sip(); // nowhere to take it: drunk at the machine
               }
             }
+          } else if (lostSeat) {
+            end();
           } else if (arrived) {
-            if (trip.stage === 'machine') {
+            if (trip.stage === 'to-game') {
+              trip.stage = 'play';
+              trip.until = now + (GAME_SEC - 1) * 1000;
+              mood(id, MOOD.game, (GAME_SEC - 1) * 1000);
+            } else if (trip.stage === 'machine') {
               trip.stage = 'pour';
               trip.until = now + POUR_SEC * 1000;
               // Held past the pour, so it is still here when the cup is full.
@@ -191,7 +238,7 @@ export function useOfficeLife(
             } else {
               sip();
             }
-          } else if (ch.state !== CharacterState.WALK) {
+          } else if (ch.state !== CharacterState.WALK && !trip.seated) {
             end(); // stopped on the way
           }
           continue;
@@ -216,6 +263,20 @@ export function useOfficeLife(
           if (spot && os.sendOnErrand(id, spot.col, spot.row)) {
             trips.set(id, { spot, stage: atMachine ? 'machine' : 'walk' });
           }
+        } else if (
+          on.game &&
+          corner.game &&
+          ch.state !== CharacterState.WALK &&
+          Math.random() < gameChance(elapsed)
+        ) {
+          // A free pouf by the video game: sit facing the screen and play a while.
+          const game = corner.game;
+          const pouf = pick(
+            os.freeSeats().filter((s) => game.poufs.some((p) => p.col === s.col && p.row === s.row)),
+          );
+          if (pouf && os.sitAsGuest(id, pouf.uid, GAME_SEC, FACING[wayTo(pouf, game.at)])) {
+            trips.set(id, { spot: { col: pouf.col, row: pouf.row }, stage: 'to-game', seated: true });
+          }
         }
       }
 
@@ -237,7 +298,14 @@ export function useOfficeLife(
         const due = now >= nextRound || os.cups.length >= ROBOT_CUPS_FULL;
         if (due && !robotIsOut(os.robot)) {
           const round = robotRound(corner, os.walkableTiles);
-          if (sendRobot(os.robot, round.stops, round.cleanAt)) nextRound = now + ROBOT_EVERY_MS;
+          // Its arms reach for the middle of the table (two tiles a side).
+          const table = corner.table?.at;
+          const reachTo = table
+            ? { x: (table.col + 1) * TILE_SIZE, y: (table.row + 1) * TILE_SIZE }
+            : null;
+          if (sendRobot(os.robot, round.stops, round.cleanAt, reachTo)) {
+            nextRound = now + ROBOT_EVERY_MS;
+          }
         }
       } else if (os.robot) {
         os.robot = null;

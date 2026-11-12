@@ -400,6 +400,8 @@ function App() {
       chat: viewerPrefs.lifeChat,
       pet: viewerPrefs.lifePet,
       robot: viewerPrefs.lifeRobot,
+      game: viewerPrefs.lifeGame,
+      roam: viewerPrefs.lifeRoam,
     }),
     [viewerPrefs],
   );

@@ -104,9 +104,11 @@ export interface WanderPace {
   pauseMaxSec: number;
   movesMin: number;
   movesMax: number;
+  /** pixel-agents-secure (local): how long it rests in its chair, as a share of the usual (1 when unset). */
+  restScale?: number;
 }
 
-const DEFAULT_PACE: WanderPace = {
+export const DEFAULT_PACE: WanderPace = {
   pauseMinSec: WANDER_PAUSE_MIN_SEC,
   pauseMaxSec: WANDER_PAUSE_MAX_SEC,
   movesMin: WANDER_MOVES_BEFORE_REST_MIN,
@@ -274,7 +276,7 @@ export function updateCharacter(
               if (ch.seatTimer < 0) {
                 ch.seatTimer = 0;
               } else {
-                restInChair(ch);
+                restInChair(ch, pace.restScale);
               }
               ch.wanderCount = 0;
               ch.wanderLimit = randomInt(pace.movesMin, pace.movesMax);
@@ -460,8 +462,8 @@ export function getCharacterSprite(ch: Character, sprites: CharacterSprites): Sp
 }
 
 /** Sit out a usual rest in the chair before standing up to wander. */
-export function restInChair(ch: Character): void {
-  ch.seatTimer = randomRange(SEAT_REST_MIN_SEC, SEAT_REST_MAX_SEC);
+export function restInChair(ch: Character, scale = 1): void {
+  ch.seatTimer = randomRange(SEAT_REST_MIN_SEC * scale, SEAT_REST_MAX_SEC * scale);
 }
 
 function randomRange(min: number, max: number): number {

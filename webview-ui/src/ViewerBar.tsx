@@ -46,6 +46,8 @@ export interface ViewerPrefs extends ViewerFeatures {
   lifeHelpers: boolean;
   lifePet: boolean;
   lifeRobot: boolean;
+  lifeGame: boolean;
+  lifeRoam: boolean;
   gearLevelText: boolean;
   gearPortrait: boolean;
   gearFx: boolean;
@@ -74,6 +76,8 @@ const DEFAULT_PREFS: ViewerPrefs = {
   lifeHelpers: true,
   lifePet: true,
   lifeRobot: true,
+  lifeGame: true,
+  lifeRoam: true,
   gearLevelText: true,
   gearPortrait: true,
   gearFx: true,
@@ -149,7 +153,7 @@ export const SUB_OPTIONS: Partial<Record<ViewerToggle, SubOption[]>> = {
       key: 'lifeCoffee',
       label: 'Pausa para o café',
       title:
-        'Quem está parado vai tomar um café de vez em quando. Com a máquina de café no escritório: enche a xícara nela, leva até a mesa de centro, bebe e deixa a xícara lá',
+        'Quem está parado vai tomar um café de vez em quando. Com a máquina de café no escritório: enche a xícara nela, senta num sofá da mesa de centro e, ao levantar, deixa a xícara na mesa',
     },
     { key: 'lifeSleep', label: 'Cochilo', title: 'Quem está parado há 20 min dorme na cadeira' },
     { key: 'lifeParty', label: 'Comemoração', title: 'Depois de um turno de 5 min ou mais' },
@@ -161,7 +165,17 @@ export const SUB_OPTIONS: Partial<Record<ViewerToggle, SubOption[]>> = {
       key: 'lifeRobot',
       label: 'Robô da limpeza',
       title:
-        'Fica ao lado da lixeira e faz uma ronda a cada 5 min, ou assim que a mesa junta 4 xícaras: passa na mesa, recolhe as xícaras e volta',
+        'Fica ao lado da lixeira e faz uma ronda a cada 5 min, ou assim que a mesa junta 4 xícaras: passa na mesa, estica os braços, recolhe as xícaras uma a uma e volta',
+    },
+    {
+      key: 'lifeGame',
+      label: 'Videogame nos pufes',
+      title: 'Quem está parado às vezes senta num pufe e joga um pouco (precisa do videogame e de um pufe por perto)',
+    },
+    {
+      key: 'lifeRoam',
+      label: 'Ociosos circulam mais',
+      title: 'Quem está parado descansa menos tempo na cadeira, anda mais e sai mais da própria sala',
     },
   ],
 };

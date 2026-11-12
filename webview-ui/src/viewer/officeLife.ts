@@ -3,9 +3,11 @@
  * characters do that say something true about their agents:
  *
  *   ☕   an idle agent goes for a coffee: with a coffee machine in the office,
- *        it fills a cup there, carries it to the coffee table, drinks and
- *        leaves the cup; without one, it just stands by the coffee a moment
+ *        it fills a cup there, sits with it on a sofa at the coffee table,
+ *        and leaves the cup on the table when it gets up; without one, it just stands by the coffee a moment
  *   🤖   a cleaning robot does its round now and then, and takes the cups
+ *        with its arms, one at a time
+ *   🎮   an idle agent sits on a pouf and plays the video game a while
  *   Zzz  an agent that finished long ago dozes in its chair
  *   🎉   an agent that just finished a long turn celebrates
  *   …    two idle agents that meet stop for a word
@@ -41,6 +43,7 @@ export const MOOD = {
   sleep: 'Zzz',
   party: '🎉',
   chat: '…',
+  game: '🎮',
 } as const;
 
 type Tile = { col: number; row: number };
@@ -139,6 +142,37 @@ export interface CoffeeCorner {
   sip: Tile[];
   /** Where the cleaning robot rests: by the bin, else by the machine. */
   dock: Tile | null;
+  /** The video game, and the poufs close enough to play from. Null without both. */
+  game: { at: Tile; poufs: Tile[] } | null;
+}
+
+/** With a cup, one sits this long at the table before getting up and leaving it there. */
+export const COFFEE_SIT_SEC = 20;
+/** An idle agent plays about once in this long, when there is a game and a free pouf... */
+export const GAME_EVERY_MS = 10 * 60_000;
+/** ...for this long. */
+export const GAME_SEC = 25;
+/** A pouf this close (in steps) to the game is one to play from. */
+const GAME_REACH_TILES = 4;
+
+/** The chance, in one look `elapsedMs` after the last, of going to play. */
+export function gameChance(elapsedMs: number): number {
+  return Math.max(0, Math.min(elapsedMs, MAX_LOOK_MS)) / GAME_EVERY_MS;
+}
+
+/** Whether a seat's tile touches the coffee table (2x2 tiles from `table`): a sofa around it. */
+export function seatAtTable(seat: Tile, table: Tile): boolean {
+  const dc = seat.col < table.col ? table.col - seat.col : Math.max(0, seat.col - table.col - 1);
+  const dr = seat.row < table.row ? table.row - seat.row : Math.max(0, seat.row - table.row - 1);
+  return dc + dr === 1;
+}
+
+/** The way one faces from `from` to look at `to`: 'up' | 'down' | 'left' | 'right'. */
+export function wayTo(from: Tile, to: Tile): 'up' | 'down' | 'left' | 'right' {
+  const dc = to.col - from.col;
+  const dr = to.row - from.row;
+  if (Math.abs(dr) >= Math.abs(dc) && dr !== 0) return dr < 0 ? 'up' : 'down';
+  return dc < 0 ? 'left' : 'right';
 }
 
 const stepsBetween = (a: Tile, b: Tile) => Math.abs(a.col - b.col) + Math.abs(a.row - b.row);
@@ -156,7 +190,16 @@ export function coffeeCorner(
     .filter((t) => t.spots.length > 0)
     .sort((a, b) => (from ? stepsBetween(a.at, from) - stepsBetween(b.at, from) : 0));
   const dock = spotsNear(furniture, walkable, 'BIN')[0] ?? machine[0] ?? null;
-  return { machine, table: tables[0] ?? null, sip: coffeeSpots(furniture, walkable), dock };
+  // The game's cabinet is its lower row (the TV above it is only picture).
+  const tv = of('VIDEO_GAME')[0];
+  const screen = tv ? { col: tv.col, row: tv.row + 1 } : null;
+  const poufs = screen
+    ? of('POUF')
+        .map((p) => ({ col: p.col, row: p.row }))
+        .filter((p) => stepsBetween(p, screen) <= GAME_REACH_TILES)
+    : [];
+  const game = screen && poufs.length > 0 ? { at: screen, poufs } : null;
+  return { machine, table: tables[0] ?? null, sip: coffeeSpots(furniture, walkable), dock, game };
 }
 
 /** Where one drinks: at the table when there is one, else by the coffee on a table. */

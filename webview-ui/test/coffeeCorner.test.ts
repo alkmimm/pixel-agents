@@ -6,6 +6,7 @@ import {
   CUP_SPRITE,
   cupOnTable,
   MAX_CUPS,
+  ROBOT_PICK_SEC,
   ROBOT_SPEED_PX_PER_SEC,
   ROBOT_SPRITES,
   ROBOT_STOP_SEC,
@@ -22,18 +23,20 @@ const F = TileType.FLOOR_1;
 const tileMap = Array.from({ length: 3 }, () => Array.from({ length: 6 }, () => F));
 const none = new Set<string>();
 
-/** Run the robot until it rests, counting the frames it reports the table cleaned. */
-function run(robot: ReturnType<typeof createRobot>, blocked = none, maxSec = 120) {
-  let cleaned = 0;
+/** Run the robot until it rests, with `cups` on the table; counts the cups it takes. */
+function run(robot: ReturnType<typeof createRobot>, blocked = none, cups = 0, maxSec = 120) {
+  let taken = 0;
   let sec = 0;
+  let reached = false;
   const seen: string[] = [];
   while (robotIsOut(robot) && sec < maxSec) {
-    if (updateRobot(robot, 0.1, tileMap, blocked)) cleaned++;
+    if (updateRobot(robot, 0.1, tileMap, blocked, cups - taken)) taken++;
+    if (robot.reaching) reached = true;
     sec += 0.1;
     const at = `${robot.tileCol},${robot.tileRow}`;
     if (seen[seen.length - 1] !== at) seen.push(at);
   }
-  return { cleaned, sec, seen };
+  return { taken, sec, seen, reached };
 }
 
 describe('cups on the coffee table', () => {
@@ -85,14 +88,14 @@ describe('the cleaning robot', () => {
     expect(coffeeCornerExtras([], null)).toEqual([]);
   });
 
-  it('does its round and comes back, reporting the table cleaned once, there', () => {
+  it('does its round and comes back; with no cup on the table its arms stay in', () => {
     const robot = createRobot({ col: 0, row: 1 });
     const table = { col: 3, row: 1 };
     expect(sendRobot(robot, [table, { col: 5, row: 0 }], table)).toBe(true);
     // Not sent again while it is out.
     expect(sendRobot(robot, [{ col: 1, row: 1 }], null)).toBe(false);
-    const { cleaned, sec, seen } = run(robot);
-    expect(cleaned).toBe(1);
+    const { taken, sec, seen, reached } = run(robot);
+    expect([taken, reached]).toEqual([0, false]);
     expect(seen).toContain('3,1');
     expect(seen).toContain('5,0');
     expect([robot.tileCol, robot.tileRow]).toEqual([0, 1]);
@@ -103,25 +106,50 @@ describe('the cleaning robot', () => {
     expect(sec).toBeLessThan(expected * 1.2);
   });
 
-  it('the cups are still there until it has worked at the table', () => {
+  it('at the table it takes the cups one at a time, arms out, and stays until none is left', () => {
     const robot = createRobot({ col: 0, row: 1 });
     const table = { col: 2, row: 1 };
-    sendRobot(robot, [table], table);
-    let cleanedAt: number | null = null;
-    for (let sec = 0; sec < 60 && cleanedAt === null; sec += 0.1) {
-      if (updateRobot(robot, 0.1, tileMap, none)) cleanedAt = sec;
+    sendRobot(robot, [table], table, { x: 2.5 * TILE_SIZE, y: 0 });
+    const withCups = run(robot, none, 3);
+    expect(withCups.taken).toBe(3);
+    expect(withCups.reached).toBe(true);
+    expect(robot.reaching).toBe(false);
+    // Three picks longer than the same round with nothing to take.
+    const again = createRobot({ col: 0, row: 1 });
+    sendRobot(again, [table], table);
+    const without = run(again);
+    expect(withCups.sec - without.sec).toBeGreaterThan(3 * ROBOT_PICK_SEC * 0.9);
+    expect(withCups.sec - without.sec).toBeLessThan(3 * ROBOT_PICK_SEC * 1.3);
+  });
+
+  it('its arms are drawn only while it takes a cup, on the table\'s side', () => {
+    const robot = createRobot({ col: 0, row: 1 });
+    const table = { col: 2, row: 1 };
+    // The table is above the stop: the arms go up.
+    sendRobot(robot, [table], table, { x: 2.5 * TILE_SIZE, y: 0 });
+    expect(coffeeCornerExtras([], robot)).toHaveLength(1);
+    let withArms = 0;
+    for (let sec = 0; sec < 20 && robotIsOut(robot); sec += 0.1) {
+      updateRobot(robot, 0.1, tileMap, none, robot.reaching || sec > 0 ? 1 : 0);
+      const extras = coffeeCornerExtras([], robot);
+      if (extras.length === 2) {
+        withArms++;
+        const [body, arms] = extras;
+        expect(arms.y + arms.sprite.length).toBeLessThanOrEqual(body.y + 2);
+        expect(arms.sprite.length).toBeGreaterThanOrEqual(2);
+        expect(arms.sprite.length).toBeLessThanOrEqual(7);
+      }
+      if (withArms > 15) break;
     }
-    const walk = (2 * TILE_SIZE) / ROBOT_SPEED_PX_PER_SEC;
-    expect(cleanedAt).toBeGreaterThan(walk + ROBOT_STOP_SEC * 0.8);
-    expect([robot.tileCol, robot.tileRow]).toEqual([2, 1]);
+    expect(withArms).toBeGreaterThan(5);
   });
 
   it('skips a stop it cannot reach, and still goes home', () => {
     const robot = createRobot({ col: 0, row: 1 });
     const walled = new Set(['4,0', '4,1', '4,2']);
     sendRobot(robot, [{ col: 5, row: 1 }, { col: 2, row: 0 }], { col: 5, row: 1 });
-    const { cleaned, seen } = run(robot, walled);
-    expect(cleaned).toBe(0);
+    const { taken, seen } = run(robot, walled, 2);
+    expect(taken).toBe(0);
     expect(seen).toContain('2,0');
     expect(seen.some((at) => at.startsWith('5,'))).toBe(false);
     expect([robot.tileCol, robot.tileRow]).toEqual([0, 1]);

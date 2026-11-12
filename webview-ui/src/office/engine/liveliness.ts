@@ -66,6 +66,9 @@ export interface Liveliness {
   wasActive: boolean;
   /** A cup in its hand, on the way from the coffee machine (viewer/useOfficeLife.ts). */
   carrying: boolean;
+  /** A seat that is not its own, where it sits a while (a sofa with its coffee, a pouf at
+   *  the video game): walking to it until `seated`, then sat for `sec` (officeState.ts). */
+  guestSeat: { uid: string; sec: number; seated: boolean; facing: Direction | null } | null;
 }
 
 export function startLiveliness(): Liveliness {
@@ -77,6 +80,7 @@ export function startLiveliness(): Liveliness {
     socialCoolSec: 0,
     wasActive: false,
     carrying: false,
+    guestSeat: null,
   };
 }
 
