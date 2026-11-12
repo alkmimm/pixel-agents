@@ -201,9 +201,12 @@ test('compact office: nobody ends up standing on floor that leads nowhere', () =
       if (ch.isSubagent) continue;
       const seat = ch.seatId ? os.seats.get(ch.seatId) : undefined;
       const onOwnSeat = seat !== undefined && seat.seatCol === ch.tileCol && seat.seatRow === ch.tileRow;
-      const guest = ch.guestSeat?.seated === true;
+      // On a seat it just got up from (a sofa, a pouf): furniture, left at its next walk.
+      const onASeat = [...os.seats.values()].some(
+        (st) => st.seatCol === ch.tileCol && st.seatRow === ch.tileRow,
+      );
       const here = `${ch.tileCol},${ch.tileRow}`;
-      if (ch.state !== CharacterState.WALK && !onOwnSeat && !guest) {
+      if (ch.state !== CharacterState.WALK && !onOwnSeat && !onASeat) {
         assert.ok(
           os.canReach({ col: ch.tileCol, row: ch.tileRow }),
           `t=${s}s agent ${ch.id} stands at ${here}, which leads nowhere ` +
