@@ -282,8 +282,7 @@ export class OfficeDirector {
     const elapsed = now - this.lastLook;
     this.lastLook = now;
     const { trips, memos, petVisits } = this;
-    // The director is in charge of who strolls where: the engine's own stroll is off.
-    os.directed = true;
+
     const pick = this.pick;
     const mood = (id: number, text: string, ms: number) =>
       this.moods.set(id, { text, until: now + ms });
@@ -298,6 +297,9 @@ export class OfficeDirector {
       this.clearOffice();
     }
     const corner = this.corner;
+    // The director is in charge of who strolls where: the engine's own stroll is off
+    // (after the layout check: a new layout clears what the director left).
+    os.directed = true;
     const machineAt = this.machineAt;
 
     os.roam = on.roam;
