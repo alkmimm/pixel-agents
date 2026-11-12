@@ -8,7 +8,7 @@
  *
  * Pure and dependency-free: bundled into dist/hooks/claude-hook.js.
  */
-export const AGENT_KINDS = ['cursor', 'copilot', 'gemini'] as const;
+export const AGENT_KINDS = ['cursor', 'copilot', 'gemini', 'codex'] as const;
 export type AgentKind = (typeof AGENT_KINDS)[number];
 
 /** The name written over a character of each kind. */
@@ -16,6 +16,8 @@ export const AGENT_KIND_NAMES: Record<AgentKind, string> = {
   cursor: 'Cursor',
   copilot: 'Copilot',
   gemini: 'Gemini',
+  // Not from a hook: read from Codex's own session files (codexSessions.ts, H18).
+  codex: 'Codex',
 };
 
 export function isAgentKind(value: unknown): value is AgentKind {

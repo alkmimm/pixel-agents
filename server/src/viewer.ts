@@ -25,11 +25,13 @@ import { ActivityLog } from './activityLog.js';
 import { AgentRuntime } from './agentRuntime.js';
 import { AgentStateStore } from './agentStateStore.js';
 import { buildAssetCache } from './assetReload.js';
+import { CodexSessions, codexSessionRoots } from './codexSessions.js';
 import { watchCharacterProfiles } from './characterProfilesPersistence.js';
 import type { AssetCache } from './clientMessageHandler.js';
 import { readConfig } from './configPersistence.js';
 import { LOOPBACK_BIND_HOST, MAX_PORT, MIN_PORT } from './constants.js';
 import { FileStateAdapter } from './fileStateAdapter.js';
+import { filterHookPayload } from './providers/hook/claude/hooks/hookPayloadFilter.js';
 import { claudeProvider } from './providers/index.js';
 import { PixelAgentsServer } from './server.js';
 import { PtySessionManager } from './terminal/ptySessionManager.js';
@@ -151,10 +153,22 @@ async function main(): Promise<void> {
     runtime.startStaleCheck();
   }
 
+  // pixel-agents-secure (H18): Codex sessions, read from their own files and
+  // only when the service names the roots. Every event goes through the H4
+  // filter, like one posted by another agent's hook.
+  const codexRoots = codexSessionRoots(process.env);
+  const codex = new CodexSessions(
+    codexRoots,
+    (event) => runtime.handleHookEvent('codex', filterHookPayload(event)),
+    { log: (message) => console.log(`[Pixel Agents viewer] ${message}`) },
+  );
+  codex.start();
+
   console.log(
     `[Pixel Agents viewer] read-only office on http://${LOOPBACK_BIND_HOST}:${config.port} ` +
       `(hooks ${runtime.hooksEnabled.current ? 'installed by the extension: live events' : 'not installed: transcripts only'}; ` +
-      `conversation view ${conversation ? 'ON' : 'off'})`,
+      `conversation view ${conversation ? 'ON' : 'off'}; ` +
+      `Codex sessions ${codexRoots.length > 0 ? `read from ${codexRoots.length} root(s)` : 'off'})`,
   );
 
   let shuttingDown = false;
@@ -163,6 +177,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     characterProfilesWatcher.dispose();
     activity.dispose();
+    codex.stop();
     runtime.dispose();
     server.stop();
     process.exit(0);

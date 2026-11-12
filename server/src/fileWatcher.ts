@@ -1135,7 +1135,11 @@ export function adoptExternalSessionFromHook(
     // Hooks-only provider (OpenCode, Copilot): no transcript file, all state from hooks
     const id = nextAgentIdRef.current++;
     const directoryName =
-      directoryNameResolver?.({ cwd }) ?? (cwd ? path.basename(cwd) : undefined);
+      directoryNameResolver?.({ cwd }) ??
+      // pixel-agents-secure (local): the repository's name, for a Windows
+      // folder read from WSL too (a Codex session of the Windows side, H18).
+      projectNameFromCwd(cwd) ??
+      (cwd ? path.basename(cwd) : undefined);
     const agent = createAgentState({
       id,
       sessionId,
@@ -1722,6 +1726,10 @@ export function startStaleExternalAgentCheck(
 
     for (const [id, agent] of agents) {
       if (!agent.isExternal) continue;
+      // pixel-agents-secure (local): a session with no transcript of ours
+      // (another agent's) has no file to go stale: it leaves by its own
+      // session end (a hook's, or codexSessions.ts for Codex).
+      if (agent.hooksOnly) continue;
 
       // Inactive external agents stay alive so they can resume when
       // the session continues (e.g., claude --resume).
