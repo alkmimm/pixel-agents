@@ -286,7 +286,7 @@ describe('H18: following Codex sessions', () => {
     await own.tick(false);
     await own.tick(false);
     expect(told.length).toBe(3); // taken: not told again
-    expect(told[2]).toEqual([`codex:${ID}`, 'gpt-6.1-sol', 'xhigh']);
+    expect(told[2]).toEqual([`codex-${ID}`, 'gpt-6.1-sol', 'xhigh']);
     expect(JSON.stringify([told, events])).not.toContain(SECRET);
     // No event carries the model: it reaches the office only as a signal.
     expect(JSON.stringify(events)).not.toContain('gpt-6.1-sol');
@@ -312,7 +312,7 @@ describe('H18: following Codex sessions', () => {
     fs.appendFileSync(file(), context + started() + exec('cat secret.txt') + execDone() + complete());
     await own.tick(false);
     expect(reviews).toEqual([
-      { parent: `codex:${PARENT}`, reviewer: ID, active: true, model: 'codex-auto-review', effort: 'low' },
+      { parent: `codex-${PARENT}`, reviewer: ID, active: true, model: 'codex-auto-review', effort: 'low' },
     ]);
     now += REVIEW_LINGER_MS + 1;
     await own.tick(false);
