@@ -264,14 +264,15 @@ describe('project rooms: the compact office', () => {
       expect(item.col, type).toBeGreaterThan(0);
       expect(item.col + 1, type).toBeLessThan(layout.cols);
     }
-    // The game corner: the video game and two poufs facing it from below.
+    // The game corner: the video game and two poufs facing it from below, to its left
+    // (each can be walked up to: test/officeLifeCompact.test.ts).
     const tv = layout.furniture.find((f) => f.type === 'VIDEO_GAME')!;
     const poufs = layout.furniture.filter((f) => f.type === 'POUF');
     expect(poufs).toHaveLength(2);
     for (const pouf of poufs) {
       expect(pouf.row).toBe(tv.row + 2);
-      expect(pouf.col - tv.col).toBeGreaterThanOrEqual(0);
-      expect(pouf.col - tv.col).toBeLessThanOrEqual(1);
+      expect(pouf.col - tv.col).toBeGreaterThanOrEqual(-2);
+      expect(pouf.col - tv.col).toBeLessThanOrEqual(-1);
     }
     expect(layout.pets).toEqual([{ id: 'cat', petType: 0 }]);
     expect(layout.tiles).toHaveLength(layout.cols * layout.rows);

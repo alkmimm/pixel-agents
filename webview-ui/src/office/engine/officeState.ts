@@ -155,6 +155,13 @@ export class OfficeState {
   blockedTiles: Set<string>;
   furniture: FurnitureInstance[];
   walkableTiles: Array<{ col: number; row: number }>;
+  /** pixel-agents-secure (local): the walkable tiles of the office one can walk
+   *  around (its largest connected area). A patch of floor that furniture closes
+   *  off (behind a sofa, under a game) is walkable but not here. */
+  reachableTiles: Array<{ col: number; row: number }> = [];
+  /** For each walkable tile, the connected area it is in; and the largest one. */
+  private areaOf = new Map<string, number>();
+  private mainArea = -1;
   characters: Map<number, Character> = new Map();
   pets: Pet[] = [];
   /** Accumulated time for furniture animation frame cycling */
@@ -262,6 +269,7 @@ export class OfficeState {
     this.blockedTiles = getBlockedTiles(this.layout.furniture);
     this.furniture = layoutToFurnitureInstances(this.layout.furniture);
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
+    this.indexAreas();
     // Pets are built last because they need walkableTiles populated for spawn.
     this.rebuildPetsFromLayout(this.layout);
     this.indexStandSpots();
@@ -277,6 +285,7 @@ export class OfficeState {
     this.blockedTiles = getBlockedTiles(layout.furniture);
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
+    this.indexAreas();
 
     // Shift character positions when grid expands left/up
     if (shift && (shift.col !== 0 || shift.row !== 0)) {
@@ -388,6 +397,65 @@ export class OfficeState {
     this.indexStandSpots();
   }
 
+  /** pixel-agents-secure (local): which walkable tiles connect to which. */
+  private indexAreas(): void {
+    const key = (col: number, row: number) => `${col},${row}`;
+    const walk = new Set(this.walkableTiles.map((t) => key(t.col, t.row)));
+    this.areaOf = new Map();
+    const sizes: number[] = [];
+    for (const start of this.walkableTiles) {
+      if (this.areaOf.has(key(start.col, start.row))) continue;
+      const id = sizes.length;
+      let size = 0;
+      const queue: Tile[] = [start];
+      this.areaOf.set(key(start.col, start.row), id);
+      while (queue.length > 0) {
+        const t = queue.pop()!;
+        size++;
+        for (const [, dc, dr] of WAYS) {
+          const k = key(t.col + dc, t.row + dr);
+          if (walk.has(k) && !this.areaOf.has(k)) {
+            this.areaOf.set(k, id);
+            queue.push({ col: t.col + dc, row: t.row + dr });
+          }
+        }
+      }
+      sizes.push(size);
+    }
+    this.mainArea = sizes.length > 0 ? sizes.indexOf(Math.max(...sizes)) : -1;
+    this.reachableTiles = this.walkableTiles.filter(
+      (t) => this.areaOf.get(key(t.col, t.row)) === this.mainArea,
+    );
+  }
+
+  /** The connected area of a tile, or (for one that is furniture: a chair one
+   *  stands up from) of the first walkable tile beside it. */
+  private areaAt(col: number, row: number): number | undefined {
+    const own = this.areaOf.get(`${col},${row}`);
+    if (own !== undefined) return own;
+    for (const [, dc, dr] of WAYS) {
+      const area = this.areaOf.get(`${col + dc},${row + dr}`);
+      if (area !== undefined) return area;
+    }
+    return undefined;
+  }
+
+  /** pixel-agents-secure (local): whether a tile is in the office one can walk
+   *  around (reachableTiles). */
+  canReach(tile: Tile): boolean {
+    return this.mainArea >= 0 && this.areaOf.get(`${tile.col},${tile.row}`) === this.mainArea;
+  }
+
+  /** pixel-agents-secure (local): whether a seat can be walked up to from the
+   *  office: a tile beside it can be reached. */
+  seatReachable(uid: string): boolean {
+    const seat = this.seats.get(uid);
+    return (
+      seat !== undefined &&
+      WAYS.some(([, dc, dr]) => this.canReach({ col: seat.seatCol + dc, row: seat.seatRow + dr }))
+    );
+  }
+
   /** Sort the walkable tiles into each room's and the common ones. */
   private indexRoomTiles(): void {
     this.roomTiles = new Map();
@@ -485,7 +553,11 @@ export class OfficeState {
   ): Tile | null {
     const ch = this.characters.get(id);
     if (!ch) return null;
-    const spots = this.strollSpots(this.wanderArea(ch), ch).filter(free);
+    // Only where it can walk to from here: floor closed off by furniture is not a stroll.
+    const area = this.areaAt(ch.tileCol, ch.tileRow);
+    const spots = this.strollSpots(this.wanderArea(ch), ch).filter(
+      (t) => (area === undefined || this.areaOf.get(`${t.col},${t.row}`) === area) && free(t),
+    );
     return spots[Math.floor(rand() * spots.length)] ?? null;
   }
 

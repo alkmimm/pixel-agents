@@ -290,7 +290,8 @@ export class OfficeDirector {
 
     if (os.getLayout() !== this.spotsOf) {
       this.spotsOf = os.getLayout();
-      this.corner = coffeeCorner(this.spotsOf.furniture, os.walkableTiles);
+      // Only where one can walk to: floor closed off by furniture is no place to stand.
+      this.corner = coffeeCorner(this.spotsOf.furniture, os.reachableTiles);
       const m = this.spotsOf.furniture.find((f) => f.type.split(':')[0] === 'COFFEE_MACHINE');
       this.machineAt = m ? { col: m.col, row: m.row } : null;
       trips.clear();
@@ -356,7 +357,23 @@ export class OfficeDirector {
       if (!game) return [];
       return os
         .freeSeats()
-        .filter((s) => game.poufs.some((p) => p.col === s.col && p.row === s.row));
+        .filter(
+          (s) =>
+            game.poufs.some((p) => p.col === s.col && p.row === s.row) && os.seatReachable(s.uid),
+        );
+    };
+    /** Walk an agent to a tile; one already standing there needs no walk. */
+    const goTo = (id: number, tile: Tile): boolean => {
+      const ch = os.characters.get(id);
+      if (
+        ch &&
+        ch.state === CharacterState.IDLE &&
+        ch.tileCol === tile.col &&
+        ch.tileRow === tile.row
+      ) {
+        return true;
+      }
+      return os.sendOnErrand(id, tile.col, tile.row);
     };
 
     /** Set an agent off for a coffee: to the machine, or to its line when someone is there. */
@@ -364,14 +381,17 @@ export class OfficeDirector {
       const with_ = mate === undefined ? {} : { mate, pair: true };
       const atMachine = corner.machine.length > 0;
       if (atMachine && machineBusy(id)) {
-        // Someone is at the machine: wait by it, when there is room to.
-        const spot = queueSpots(corner.machine[0], os.walkableTiles).find((q) => !claimed(q, id));
-        if (!spot || !os.sendOnErrand(id, spot.col, spot.row)) return false;
+        // Someone is at the machine: wait by it, when there is room to (every free
+        // place is tried: the way to one may be shut).
+        const spot = queueSpots(corner.machine[0], os.reachableTiles)
+          .filter((q) => !claimed(q, id))
+          .find((q) => goTo(id, q));
+        if (!spot) return false;
         trips.set(id, { spot, stage: 'queue', turn: this.nextTurn++, queuedAt: now, ...with_ });
         return true;
       }
       const spot = pick(atMachine ? corner.machine : drinkingSpots(corner));
-      if (!spot || !os.sendOnErrand(id, spot.col, spot.row)) return false;
+      if (!spot || !goTo(id, spot)) return false;
       trips.set(id, { spot, stage: atMachine ? 'machine' : 'walk', ...with_ });
       return true;
     };
@@ -441,7 +461,7 @@ export class OfficeDirector {
         spot = here; // already beside it
       holdStill(a, PAIR_HOLD_SEC, false);
       } else {
-        spot = os.walkableTiles
+        spot = os.reachableTiles
           .filter((t) => {
             const d = steps(t, there);
             return d >= 1 && d <= PAIR_REACH_TILES && !claimed(t, a);
@@ -581,7 +601,7 @@ export class OfficeDirector {
               trip.stage = 'walk';
               trip.seated = true;
               trip.table = table;
-            } else if (to && os.sendOnErrand(id, to.col, to.row)) {
+            } else if (to && goTo(id, to)) {
               trip.spot = to;
               trip.stage = 'walk';
               trip.table = corner.table?.at;
@@ -604,7 +624,7 @@ export class OfficeDirector {
             first &&
             front &&
             !machineBusy(id) &&
-            os.sendOnErrand(id, front.col, front.row)
+            goTo(id, front)
           ) {
             trip.spot = front;
             trip.stage = 'machine';
@@ -682,7 +702,7 @@ export class OfficeDirector {
         (this.cupsSince !== null && now - this.cupsSince >= ROBOT_CUP_WAIT_MS);
       const due = now >= this.nextRound || (cupsWait && now >= this.fullRoundAfter);
       if (due && !robotIsOut(os.robot)) {
-        const round = robotRound(corner, os.walkableTiles);
+        const round = robotRound(corner, os.reachableTiles);
         // Its arms reach for the middle of the table (two tiles a side).
         const table = corner.table?.at;
         const reachTo = table
