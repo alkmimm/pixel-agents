@@ -78,6 +78,30 @@ describe('observeRecord', () => {
     observeRecord(a, { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } });
     expect(signalsMessage(a)).toMatchObject({ rateLimited: false, quotaUntil: undefined });
   });
+
+  it('reads the model and effort of the session itself, well-formed only', () => {
+    const a = agentOf();
+    const reply = (model: unknown, extra: Record<string, unknown> = {}) => ({
+      type: 'assistant',
+      message: { model, content: [] },
+      ...extra,
+    });
+    observeRecord(a, reply('claude-opus-5-5', { effort: 'high', perTurnEffort: 'xhigh' }));
+    expect(signalsMessage(a)).toMatchObject({ model: 'claude-opus-5-5', effort: 'xhigh' });
+    // A sub-agent's reply, a synthetic one and a malformed id change nothing.
+    observeRecord(a, reply('claude-haiku-5-5', { isSidechain: true, effort: 'low' }));
+    observeRecord(a, reply('<synthetic>'));
+    observeRecord(a, reply('x'.repeat(65)));
+    observeRecord(a, reply('claude opus; rm -rf'));
+    observeRecord(a, reply(42));
+    expect(signalsMessage(a)).toMatchObject({ model: 'claude-opus-5-5', effort: 'xhigh' });
+    // A new model takes over, with its own effort (none recorded: none kept).
+    observeRecord(a, reply('claude-fable-5-2[1m]', { effort: 'NOT AN EFFORT' }));
+    expect(signalsMessage(a)).toMatchObject({ model: 'claude-fable-5-2[1m]', effort: undefined });
+    // A user record never names the model.
+    observeRecord(a, { type: 'user', message: { model: 'claude-sonnet-5-5', content: 'x' } });
+    expect(signalsMessage(a).model).toBe('claude-fable-5-2[1m]');
+  });
 });
 
 describe('broadcastSignalsIfChanged', () => {
@@ -123,11 +147,13 @@ describe('seedSignals', () => {
         f,
         line({ type: 'custom-title', customTitle: 'Revisão' }) +
           line({ type: 'user', permissionMode: 'plan', message: { content: 'x' } }) +
-          line({ type: 'user', permissionMode: 'auto', message: { content: 'y' } }),
+          line({ type: 'user', permissionMode: 'auto', message: { content: 'y' } }) +
+          line({ type: 'assistant', effort: 'medium', message: { model: 'claude-sonnet-5-5' } }),
       );
       const a = agentOf({ jsonlFile: f });
       seedSignals(a);
       expect(signalsMessage(a)).toMatchObject({ permissionMode: 'auto', title: 'Revisão' });
+      expect(signalsMessage(a)).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'medium' });
       fs.appendFileSync(f, line({ type: 'custom-title', customTitle: 'Outro' }));
       seedSignals(a);
       expect(signalsMessage(a).title).toBe('Revisão');

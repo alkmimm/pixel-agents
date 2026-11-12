@@ -13,6 +13,9 @@
  *   when the limit resets (`quotaLimits.resetsAt`).
  * - repeats: how many times in a row the same tool was called with the same
  *   input. The input is only hashed (sha256), never kept nor sent.
+ * - model, effort: the model id and the reasoning effort Claude Code records
+ *   on each reply of the session itself (not a sub-agent's). The office dresses
+ *   the character by them (webview-ui/src/viewer/modelLevel.ts).
  *
  * Nothing here reads tool results' content, prompts, or replies.
  */
@@ -31,6 +34,8 @@ export interface SessionSignals {
   rateLimited: boolean;
   quotaUntil?: number;
   repeats: number;
+  model?: string;
+  effort?: string;
   lastCallKey?: string;
   /** JSON of the last broadcast view, to send only changes. */
   sent?: string;
@@ -57,6 +62,19 @@ export const ERROR_STREAK_THRESHOLD = 3;
 /** Identical calls in a row before the office is told (a loop). */
 export const REPEAT_THRESHOLD = 4;
 const MODE_PATTERN = /^[A-Za-z]{1,32}$/;
+/** A model id ("claude-opus-5-5", "claude-fable-5-2[1m]"); "<synthetic>" does not match. */
+const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,63}$/;
+const EFFORT_PATTERN = /^[a-z]{1,16}$/;
+
+/** The model and effort of a reply of the session itself (a sub-agent's are its own). */
+function observeModel(s: SessionSignals, r: Record<string, unknown>): void {
+  if (r.type !== 'assistant' || r.isSidechain === true) return;
+  const model = (r.message as { model?: unknown } | undefined)?.model;
+  if (typeof model !== 'string' || !MODEL_PATTERN.test(model)) return;
+  s.model = model;
+  const effort = typeof r.perTurnEffort === 'string' ? r.perTurnEffort : r.effort;
+  s.effort = typeof effort === 'string' && EFFORT_PATTERN.test(effort) ? effort : undefined;
+}
 /** How much of a transcript's end is read once, for an agent adopted mid-session. */
 const SEED_TAIL_BYTES = 256 * 1024;
 
@@ -101,6 +119,7 @@ export function observeRecord(agent: AgentState, record: unknown): void {
   }
   if (r.type === 'custom-title') s.title = cleanTitle(r.customTitle) ?? s.title;
   if (r.type === 'ai-title') s.aiTitle = cleanTitle(r.aiTitle) ?? s.aiTitle;
+  observeModel(s, r);
 
   if (r.type === 'assistant') {
     if (r.error === 'rate_limit') {
@@ -145,8 +164,8 @@ export function observeRecord(agent: AgentState, record: unknown): void {
 }
 
 /**
- * For an agent adopted or restored mid-session: the mode and titles from the
- * end of its transcript, once. Streaks and repeats start from now.
+ * For an agent adopted or restored mid-session: the mode, titles, model and
+ * effort from the end of its transcript, once. Streaks and repeats start from now.
  */
 export function seedSignals(agent: AgentState): void {
   const s = signalsOf(agent);
@@ -169,7 +188,13 @@ export function seedSignals(agent: AgentState): void {
   }
   for (const line of text.split('\n')) {
     // Only records that can carry what is seeded are parsed.
-    if (!line.includes('permissionMode') && !line.includes('-title"')) continue;
+    if (
+      !line.includes('permissionMode') &&
+      !line.includes('-title"') &&
+      !line.includes('"model"')
+    ) {
+      continue;
+    }
     let record: Record<string, unknown>;
     try {
       record = JSON.parse(line) as Record<string, unknown>;
@@ -181,6 +206,7 @@ export function seedSignals(agent: AgentState): void {
     }
     if (record.type === 'custom-title') s.title = cleanTitle(record.customTitle) ?? s.title;
     if (record.type === 'ai-title') s.aiTitle = cleanTitle(record.aiTitle) ?? s.aiTitle;
+    observeModel(s, record);
   }
 }
 
@@ -198,6 +224,8 @@ export function signalsMessage(agent: AgentState): Record<string, unknown> {
     rateLimited: s.rateLimited,
     quotaUntil: s.quotaUntil,
     repeats: s.repeats >= REPEAT_THRESHOLD ? s.repeats : 0,
+    model: s.model,
+    effort: s.effort,
   };
 }
 
@@ -210,7 +238,8 @@ function isEmptyView(message: Record<string, unknown>): boolean {
     message.errorStreak === 0 &&
     message.rateLimited === false &&
     message.quotaUntil === undefined &&
-    message.repeats === 0
+    message.repeats === 0 &&
+    message.model === undefined
   );
 }
 
