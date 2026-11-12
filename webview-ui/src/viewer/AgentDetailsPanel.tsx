@@ -33,6 +33,7 @@ import {
   permissionModeText,
   sessionTitle,
   signalBadges,
+  useAgentGear,
   useAgentSignals,
   type ViewerFeatures,
 } from './agentSignals.js';
@@ -199,6 +200,7 @@ export function AgentDetailsPanel({
   const [tab, setTab] = useState<Tab>('activity');
   const activity = useAgentActivity(agentId);
   const signals = useAgentSignals(agentId);
+  const gear = useAgentGear(agentId);
   const offered = useConversationOffered();
   const now = useNow(5_000);
   // Re-read the character's live state (it is mutable, not React state).
@@ -246,7 +248,7 @@ export function AgentDetailsPanel({
       onWheel={(e) => e.stopPropagation()}
     >
       <div className="flex items-start gap-8">
-        {ch && <CharacterMugShot palette={ch.palette} repeat={ch.repeat} />}
+        {ch && <CharacterMugShot palette={ch.palette} repeat={ch.repeat} gear={gear} />}
         <div className="flex flex-col min-w-0 flex-1">
           <span className="text-base text-text truncate" title={title}>
             {title ?? agentTitle(officeState, agentId)}

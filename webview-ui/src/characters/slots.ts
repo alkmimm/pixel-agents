@@ -304,8 +304,9 @@ const CLOSED = shapeById('closed')!;
 export const eyeShape = (p: CharacterProfile): EyeShape =>
   shapeById(p.eyeShape) ?? shapeById(BODIES[p.body]?.eyes) ?? EYE_SHAPES[0];
 
-/** A profile as the renderer draws it; `blink`: mid-blink, Closed eyes drawn over its own. */
-export type RenderProfile = CharacterProfile & { blink?: boolean };
+/** A profile as the renderer draws it; `blink`: mid-blink, Closed eyes drawn over its own;
+ *  `gear`: the model gear laid over it (modelGear.ts), 0 or absent for none. */
+export type RenderProfile = CharacterProfile & { blink?: boolean; gear?: number };
 
 /** Whether a profile blinks: not with its eyes shut, nor reading with bare eyes (the blink would flash the glasses). */
 export function canBlink(p: CharacterProfile, reading: boolean): boolean {

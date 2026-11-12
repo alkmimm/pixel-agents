@@ -61,6 +61,7 @@ import { AgentHoverCard } from './viewer/AgentHoverCard.js';
 import {
   BADGE_COLOR,
   sessionTitle,
+  setModelGearOn,
   signalBadges,
   useAllSignals,
   type ViewerFeatures,
@@ -276,6 +277,7 @@ function App() {
   const allSignals = useAllSignals();
   // pixel-agents-secure (local): each character in its model's gear.
   useEffect(() => {
+    setModelGearOn(features.modelLevel);
     dressCharacters(getOfficeState().characters.values(), allSignals, features.modelLevel);
   }, [allSignals, features.modelLevel, agents, subagentCharacters]);
   useEffect(() => {

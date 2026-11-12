@@ -1,6 +1,7 @@
 import { CARD_CONTEXT_BAR_HEIGHT_PX, CARD_MUGSHOT_CROP_TOP_ROW } from '../constants.js';
 import { ContextBar } from '../office/ContextBar.js';
 import { contextLeft, useAgentContextUsed } from '../office/contextGauge.js';
+import { useAgentGear } from '../viewer/agentSignals.js';
 import type { CardVariant, CloseMode } from './cardBar.js';
 import { CharacterMugShot } from './CharacterMugShot.js';
 import { STATUS_DOT } from './statusDot.js';
@@ -61,6 +62,7 @@ export function AgentCard({
   onClose,
 }: AgentCardProps) {
   const contextUsed = useAgentContextUsed(agentId);
+  const gear = useAgentGear(agentId);
   return (
     <div
       className={`group relative pointer-events-auto flex items-stretch gap-1 p-1 cursor-pointer border-2 shrink-0 ${CARD_VARIANT[variant]}`}
@@ -70,6 +72,7 @@ export function AgentCard({
       <CharacterMugShot
         palette={appearance.palette}
         repeat={appearance.repeat}
+        gear={gear}
         cropTop={CARD_MUGSHOT_CROP_TOP_ROW}
       />
       {/* Close on top, status dot at the bottom, both centred over the

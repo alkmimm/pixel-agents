@@ -76,6 +76,15 @@ const BODY_SHEETS: readonly Underwear[] = ['under', 'utop'];
 /** An eye folder's pieces: the iris comes in one sheet per eye-row variant (which eye pixel takes the eye colour). */
 const EYE_PIECES = ['whites', ...EYE_ROWS.map((rows) => `iris.${rows}`), 'lashes'];
 export const PROPS = { glasses: 'props/reading-glasses', paper: 'props/paper' } as const;
+/** pixel-agents-secure (local): the model gear sheets, laid over the finished character
+ *  (modelGear.ts; drawn by scripts/gear-art.py). */
+export const GEAR_ART = {
+  haiku: 'gear/haiku',
+  sonnet: 'gear/sonnet',
+  opus: 'gear/opus',
+  fable: 'gear/fable',
+  star: 'gear/star',
+} as const;
 /** Pieces a part of a category may come with, each its own sheet (<piece>/<part id>.png): an outfit's tie. */
 const PART_EXTRAS: Record<string, readonly string[]> = { full: ['tie'] };
 
@@ -90,7 +99,7 @@ export const eyeArt = (folder: string, piece: string, rows?: EyeRows): string =>
  * shape has only the ones it draws, and a part's extra pieces). `eyeFolders` are the folders under eyes/.
  */
 function expectedArt(manifest: WardrobeManifest, eyeFolders: readonly string[]) {
-  const required = new Set<string>(Object.values(PROPS));
+  const required = new Set<string>([...Object.values(PROPS), ...Object.values(GEAR_ART)]);
   const optional = new Set<string>();
   for (const [cat, parts] of Object.entries(manifest.parts)) {
     for (const { id } of parts) {

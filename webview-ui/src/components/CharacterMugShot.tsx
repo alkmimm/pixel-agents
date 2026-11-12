@@ -17,6 +17,8 @@ import { Direction } from '../office/types.js';
 interface CharacterMugShotProps {
   palette: number;
   repeat: number;
+  /** pixel-agents-secure (local): the model gear worn (viewer/modelLevel.ts); none by default. */
+  gear?: number;
   /** Sprite pixels to CSS pixels, a whole number. Defaults to MUGSHOT_RENDER_ZOOM. */
   zoom?: number;
   /** First sprite row of the crop. Defaults to MUGSHOT_CROP_TOP_ROW. */
@@ -34,6 +36,7 @@ interface CharacterMugShotProps {
 export function CharacterMugShot({
   palette,
   repeat,
+  gear = 0,
   zoom = MUGSHOT_RENDER_ZOOM,
   cropTop = MUGSHOT_CROP_TOP_ROW,
 }: CharacterMugShotProps) {
@@ -47,7 +50,7 @@ export function CharacterMugShot({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const front = getCharacterSprites(palette, repeat).walk[Direction.DOWN][0];
+    const front = getCharacterSprites(palette, repeat, false, gear).walk[Direction.DOWN][0];
     const full = getCachedSprite(front, zoom);
 
     const side = MUGSHOT_CROP_SIDE_PX * zoom;
@@ -56,7 +59,7 @@ export function CharacterMugShot({
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, side, side);
     ctx.drawImage(full, MUGSHOT_CROP_LEFT_COL * zoom, cropTop * zoom, side, side, 0, 0, side, side);
-  }, [palette, repeat, zoom, cropTop, sprites]);
+  }, [palette, repeat, gear, zoom, cropTop, sprites]);
 
   return (
     <canvas

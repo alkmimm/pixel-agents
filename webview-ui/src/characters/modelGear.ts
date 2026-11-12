@@ -1,54 +1,28 @@
 /**
  * pixel-agents-secure (local): the gear a character wears for the model its
- * agent runs on (viewer/modelLevel.ts). Like a repeat's clothes
- * (repeatClothes.ts), it is a copy of the profile made for drawing: the saved
- * cast is never changed. The character keeps its body, face, hair and whatever
- * the gear does not replace.
+ * agent runs on (viewer/modelLevel.ts): a sword on the back for Haiku, plus
+ * leather armour for Sonnet, steel armour, helm and shield for Opus, the same
+ * in gold with a plume for Fable, and a star over the head at the top effort.
+ *
+ * Like a repeat's clothes (repeatClothes.ts), it is a copy of the profile made
+ * for drawing: the saved cast is never changed, and the character keeps its
+ * body, face, hair and clothes. The gear is one sheet per tier
+ * (art/gear/, drawn by scripts/gear-art.py), laid over the finished character.
  */
 
-import type { CharacterColor, CharacterProfile } from '../../../core/src/characterProfiles.js';
-import { gearParts, type ModelTier } from '../viewer/modelLevel.js';
-import type { SlotKey } from './slots.js';
+import type { CharacterProfile } from '../../../core/src/characterProfiles.js';
+import { gearParts } from '../viewer/modelLevel.js';
+import type { RenderProfile } from './slots.js';
+import { GEAR_ART } from './wardrobe.js';
 
-type GearSlot = Exclude<SlotKey, 'body'>;
-/** A part worn, and its colourway when the part ships gray (wardrobe.json `neutral`). */
-type GearPiece = { id: string; palette?: string } | null;
+/** The profile in its gear (gear 0 or unknown = unchanged). */
+export function withModelGear(p: CharacterProfile, gear: number): RenderProfile {
+  return gearParts(gear) ? { ...p, gear } : p;
+}
 
-/** Each tier's pieces; null takes a piece off (a jacket over the suit). */
-const TIER_GEAR: Record<ModelTier, Partial<Record<GearSlot, GearPiece>>> = {
-  fable: { full: { id: 'suit_and_tie' }, jacket: null, shades: { id: 'shades' } },
-  opus: { jacket: { id: 'blazer', palette: 'Original' }, watch: { id: 'watch' } },
-  sonnet: { jacket: { id: 'vest', palette: 'Original' } },
-  haiku: {
-    hat: { id: 'badge_cap', palette: 'Original' },
-    lanyard: { id: 'lanyard', palette: 'Original' },
-  },
-};
-/** What the top effort adds, on any tier. */
-const TOP_GEAR: Partial<Record<GearSlot, GearPiece>> = { necklace: { id: 'necklace_chain' } };
-
-const PLAIN: CharacterColor = { h: 0, s: 0, b: 0, c: 0 };
-
-/**
- * The profile in its gear (gear 0 or unknown = unchanged). Gear comes in its
- * own colours, whatever the character's or its repeat's are: that is what
- * tells the tiers apart.
- */
-export function withModelGear(p: CharacterProfile, gear: number): CharacterProfile {
-  const parts = gearParts(gear);
-  if (!parts) return p;
-  const colors: NonNullable<CharacterProfile['colors']> = { ...p.colors };
-  const worn: CharacterProfile = { ...p, colors };
-  const pieces = { ...TIER_GEAR[parts.tier], ...(parts.top ? TOP_GEAR : {}) };
-  for (const [slot, piece] of Object.entries(pieces) as Array<[GearSlot, GearPiece]>) {
-    if (piece) {
-      worn[slot] = piece.id;
-      colors[slot] = piece.palette ? { ...PLAIN, palette: piece.palette } : PLAIN;
-    } else {
-      delete worn[slot];
-    }
-  }
-  // The suit's tie in its own colour too.
-  if (pieces.full) delete colors.tie;
-  return worn;
+/** The art sheets a gear lays over the character, bottom first. */
+export function gearArt(gear: number | undefined): string[] {
+  const parts = gear ? gearParts(gear) : undefined;
+  if (!parts) return [];
+  return parts.top ? [GEAR_ART[parts.tier], GEAR_ART.star] : [GEAR_ART[parts.tier]];
 }

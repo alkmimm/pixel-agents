@@ -7,7 +7,7 @@ import { expect, it } from 'vitest';
 
 import type { CharacterProfile } from '../../core/src/characterProfiles.js';
 import { DEFAULT_CHARACTER_PROFILES } from '../../core/src/defaultCharacterProfiles.js';
-import { withModelGear } from '../src/characters/modelGear.js';
+import { gearArt, withModelGear } from '../src/characters/modelGear.js';
 import { startOfficeSync } from '../src/characters/officeSprites.js';
 import { CharacterRenderer } from '../src/characters/renderer.js';
 import { EYE_FOLDERS } from '../src/characters/slots.js';
@@ -46,15 +46,32 @@ const front = (palette: number, repeat: number, gear: number) =>
 const MODELS = ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-2'];
 const GEARS = MODELS.flatMap((m) => [modelGear(m, 'medium'), modelGear(m, 'xhigh')]);
 
-it('every gear part exists in the wardrobe', () => {
-  const ids = new Map(Object.entries(manifest.parts).map(([slot, parts]) => [slot, parts.map((p) => p.id)]));
-  const bare: CharacterProfile = { ...DEFAULT_CHARACTER_PROFILES[0] };
-  for (const gear of GEARS) {
-    const worn = withModelGear(bare, gear) as unknown as Record<string, unknown>;
-    const before = bare as unknown as Record<string, unknown>;
-    for (const slot of ['full', 'jacket', 'hat', 'shades', 'watch', 'lanyard', 'necklace']) {
-      if (worn[slot] === before[slot] || worn[slot] === undefined) continue;
-      expect(ids.get(slot), `${slot} of gear ${gear}`).toContain(worn[slot]);
+it('every gear lays its tier sheet, and the star at the top effort', () => {
+  expect(gearArt(0)).toEqual([]);
+  expect(gearArt(undefined)).toEqual([]);
+  expect(gearArt(99)).toEqual([]);
+  for (const model of MODELS) {
+    const [sheet] = gearArt(modelGear(model, 'medium'));
+    expect(files.has(sheet), sheet).toBe(true);
+    expect(gearArt(modelGear(model, 'medium'))).toEqual([sheet]);
+    expect(gearArt(modelGear(model, 'xhigh'))).toEqual([sheet, 'gear/star']);
+  }
+  expect(new Set(MODELS.map((m) => gearArt(modelGear(m))[0])).size).toBe(MODELS.length);
+});
+
+it('every tier shows in every frame of every view, so it is told apart seated or walking', () => {
+  for (const model of MODELS) {
+    const img = files.get(gearArt(modelGear(model))[0])!;
+    for (let row = 0; row < 3; row++) {
+      for (let frame = 0; frame < 8; frame++) {
+        let opaque = 0;
+        for (let y = 0; y < 32; y++) {
+          for (let x = 0; x < 16; x++) {
+            if (img.data[((row * 32 + y) * img.width + frame * 16 + x) * 4 + 3] > 0) opaque++;
+          }
+        }
+        expect(opaque, `${model} row ${row} frame ${frame}`).toBeGreaterThanOrEqual(8);
+      }
     }
   }
 });
@@ -65,11 +82,9 @@ it('each model dresses every character differently', () => {
     const looks = GEARS.map((gear) => front(i, 0, gear));
     expect(new Set(looks).size, `character ${i}`).toBe(looks.length);
     expect(getCharacterSprites(i, 0, false, 0)).toBe(getCharacterSprites(i, 0));
+    const plain = front(i, 0, 0);
+    for (const gear of GEARS) expect(front(i, 0, gear), `gear ${gear}`).not.toBe(plain);
   });
-  // A character wearing none of the pieces changes with every gear (one that
-  // already wears a tier's piece, like the default cast's vest, may not).
-  const plain = front(0, 0, 0);
-  for (const gear of GEARS) expect(front(0, 0, gear), `gear ${gear}`).not.toBe(plain);
   stop();
 });
 

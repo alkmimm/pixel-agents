@@ -7,6 +7,7 @@
 import { useSyncExternalStore } from 'react';
 
 import { transport } from '../transport/index.js';
+import { modelGear } from './modelLevel.js';
 import type { AgentSignals } from './signalText.js';
 
 export * from './signalText.js';
@@ -15,6 +16,8 @@ let signals = new Map<number, AgentSignals>();
 let version = 0;
 const listeners = new Set<() => void>();
 let subscribed = false;
+/** Whether characters wear their model's gear (Opções → Novidades → "Nível por modelo"). */
+let gearOn = false;
 
 const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 const str = (v: unknown, max: number) =>
@@ -62,6 +65,20 @@ export function startSignalsFeed(): void {
 export function useAgentSignals(id: number | null): AgentSignals | undefined {
   useSyncExternalStore(subscribe, () => version);
   return id === null ? undefined : signals.get(id);
+}
+
+/** Turn the model gear on or off for every portrait (App.tsx, from the option). */
+export function setModelGearOn(on: boolean): void {
+  if (on === gearOn) return;
+  gearOn = on;
+  version++;
+  for (const listener of listeners) listener();
+}
+
+/** The gear an agent's portrait wears (viewer/modelLevel.ts); 0 with the option off. */
+export function useAgentGear(id: number | null): number {
+  const s = useAgentSignals(id);
+  return gearOn ? modelGear(s?.model, s?.effort) : 0;
 }
 
 /** Every agent's signals (re-renders on any change). */

@@ -27,6 +27,7 @@ import {
   type RenderProfile,
   shownArt,
 } from './slots.js';
+import { gearArt } from './modelGear.js';
 import { type CategoryPalette, PROPS, type Wardrobe } from './wardrobe.js';
 
 /** A piece's layer, with the key its tinted versions are cached under. */
@@ -350,6 +351,9 @@ export class CharacterRenderer {
       if (!px) continue;
       over(d, px, layer.behind ? drawn.get(layer.behind) : undefined);
       drawn.set(layer.pix, px);
+    }
+    if (!opts.only) {
+      for (const art of gearArt(p.gear)) over(d, this.wardrobe.art.get(art)!);
     }
     if (!opts.only && opts.props !== false) {
       if (!eyeShape(p).bare) over(d, this.wardrobe.art.get(PROPS.glasses)!);

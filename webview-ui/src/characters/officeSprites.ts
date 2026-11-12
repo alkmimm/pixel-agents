@@ -95,7 +95,7 @@ function sync(): void {
   setCharacterTemplates([...sprites, ...external], (palette, repeat, blink, gear) => {
     const profile = profiles[palette];
     if (profile) {
-      // The gear goes over the repeat's colours, in its own.
+      // The gear goes over the repeat's clothes.
       const worn = withModelGear(repeat ? withRepeatClothes(profile, repeat) : profile, gear);
       return blink ? blinkSprites(renderer, profile, worn) : officeSpritesOf(renderer.sheet(worn));
     }
