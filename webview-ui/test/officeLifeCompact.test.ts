@@ -43,7 +43,11 @@ interface TripLike {
 }
 
 /** The compact office with `agents` ([id, project]); the director starts nothing by chance. */
-function compact(agents: Array<[number, string]>, parts: Partial<LifeParts> = {}) {
+function compact(
+  agents: Array<[number, string]>,
+  parts: Partial<LifeParts> = {},
+  rand: () => number = () => 0.99,
+) {
   const base = plainBase();
   const os = new OfficeState(base);
   for (const [id, project] of agents) {
@@ -53,7 +57,7 @@ function compact(agents: Array<[number, string]>, parts: Partial<LifeParts> = {}
   const rooms = new Rooms(os, base);
   let now = 1_000_000;
   rooms.tick(now);
-  const director = new OfficeDirector(() => os, () => ({ tone: 'idle' as const }), now, () => 0.99);
+  const director = new OfficeDirector(() => os, () => ({ tone: 'idle' as const }), now, rand);
   const on: LifeParts = { ...ALL_PARTS, robot: false, pet: false, chat: false, ...parts };
   const ids = agents.map(([id]) => id);
   const second = () => {
@@ -171,4 +175,42 @@ test('rooms opening over the corridor move everyone along: walks, trips and cups
   }
   assert.ok(seen.has('greet') && seen.has('sip'), [...seen].join(', '));
   assert.equal(os.cups.length, 3);
+});
+
+test('compact office: nobody ends up standing on floor that leads nowhere', () => {
+  // A busy office left to itself for a while: strolls, coffees, games, pairs,
+  // and rooms opening as agents arrive.
+  const { os, second, trips, add } = compact(
+    [
+      [1, 'alpha'],
+      [2, 'alpha'],
+      [3, 'beta'],
+      [4, 'beta'],
+      [5, 'gamma'],
+      [6, 'gamma'],
+    ],
+    {},
+    seeded(11),
+  );
+  const last = new Map<number, string>();
+  for (let s = 0; s < 900; s++) {
+    if (s === 200) add(7, 'delta');
+    if (s === 500) add(8, 'alpha');
+    second();
+    for (const ch of os.characters.values()) {
+      if (ch.isSubagent) continue;
+      const seat = ch.seatId ? os.seats.get(ch.seatId) : undefined;
+      const onOwnSeat = seat !== undefined && seat.seatCol === ch.tileCol && seat.seatRow === ch.tileRow;
+      const guest = ch.guestSeat?.seated === true;
+      const here = `${ch.tileCol},${ch.tileRow}`;
+      if (ch.state !== CharacterState.WALK && !onOwnSeat && !guest) {
+        assert.ok(
+          os.canReach({ col: ch.tileCol, row: ch.tileRow }),
+          `t=${s}s agent ${ch.id} stands at ${here}, which leads nowhere ` +
+            `(before: ${last.get(ch.id)}; trip: ${trips.get(ch.id)?.stage ?? 'none'})`,
+        );
+      }
+      last.set(ch.id, `${ch.state}@${here}`);
+    }
+  }
 });

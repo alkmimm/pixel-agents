@@ -951,7 +951,10 @@ export class OfficeState {
   private closestTile(taken: Set<string>, score: (tile: Tile) => number): Tile | null {
     let best: Tile | null = null;
     let bestScore = Infinity;
-    for (const tile of this.walkableTiles) {
+    // pixel-agents-secure (local): only floor one can walk away from. A pocket closed
+    // by furniture (behind a room's plant) is walkable and leads nowhere.
+    const floor = this.reachableTiles.length > 0 ? this.reachableTiles : this.walkableTiles;
+    for (const tile of floor) {
       if (taken.has(`${tile.col},${tile.row}`)) continue;
       const d = score(tile);
       if (d < bestScore) {
