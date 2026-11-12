@@ -566,9 +566,14 @@ export class OfficeDirector {
           }
         } else if (trip.stage === 'greet') {
           if (now >= (trip.until ?? 0)) {
-            // Each sets off, as a pair; one that cannot (no room left) just goes back to its day.
+            // Each sets off, as a pair. One that cannot (no room left) goes back to its
+            // day, and its mate goes on alone: it does not wait for it, or talk to nobody
+            // (when the mate has not set off yet, it sets off alone).
             trips.delete(id);
-            if (trip.plan) start(id, trip.plan, trip.mate);
+            const mate = trip.mate;
+            const went = trip.plan !== undefined && start(id, trip.plan, mate);
+            const other = mate === undefined ? undefined : trips.get(mate);
+            if (!went && other?.mate === id) other.mate = undefined;
           }
         } else if (trip.stage === 'play') {
           if (now >= (trip.until ?? 0) || ch.guestSeat === null) end();
