@@ -12,7 +12,13 @@ export type ModelTier = (typeof MODEL_TIERS)[number];
 /** A tier's level before the effort's bonus. */
 const BASE_LEVEL: Record<ModelTier, number> = { haiku: 20, sonnet: 40, opus: 60, fable: 90 };
 /** What each effort adds; one the office does not know adds nothing. */
-const EFFORT_BONUS: Record<string, number> = { low: 0, medium: 3, high: 6, xhigh: 10, max: 10 };
+const EFFORT_BONUS: ReadonlyMap<string, number> = new Map([
+  ['low', 0],
+  ['medium', 3],
+  ['high', 6],
+  ['xhigh', 10],
+  ['max', 10],
+]);
 const TOP_BONUS = 10;
 
 /** The family in a model id ("claude-opus-5-5" → opus), if it is one of ours. */
@@ -24,7 +30,8 @@ export function modelTier(model: string | undefined): ModelTier | undefined {
   return MODEL_TIERS.find((tier) => id.includes(tier));
 }
 
-const bonusOf = (effort: string | undefined): number => (effort && EFFORT_BONUS[effort]) || 0;
+const bonusOf = (effort: string | undefined): number =>
+  (effort !== undefined && EFFORT_BONUS.get(effort)) || 0;
 
 /** The level (20-100), or undefined for a model the office does not know. */
 export function modelLevel(model: string | undefined, effort?: string): number | undefined {
