@@ -34,8 +34,8 @@ const char = (over: Partial<Lively> = {}): Lively => ({
   ...startLiveliness(),
   ...over,
 });
-const ALL = { gearFx: true, social: true };
-const OFF = { gearFx: false, social: false };
+const ALL = { gearFx: true, greet: true, helpers: true };
+const OFF = { gearFx: false, greet: false, helpers: false };
 const always = () => 0;
 const never = () => 0.999999;
 const FABLE = modelGear('claude-fable-5-2', 'xhigh');
@@ -125,7 +125,7 @@ describe('greeting in passing', () => {
     tickLiveliness([a, standing, helper], 0.1, ALL, always);
     expect(a.fx).toBeNull();
     const b = walker(4);
-    tickLiveliness([a, b], 0.1, { gearFx: true, social: false }, always);
+    tickLiveliness([a, b], 0.1, { ...ALL, greet: false }, always);
     expect([a.fx, b.fx]).toEqual([null, null]);
   });
 });
@@ -170,6 +170,15 @@ describe('helpers', () => {
     expect(a.glanceSec).toBeGreaterThan(0);
     expect(a.glanceDir).not.toBe(Direction.DOWN);
     expect(other.glanceSec).toBe(0);
+  });
+
+  it('with their option off they stay as they were, whatever else is on', () => {
+    const done = helper(0, { wasActive: true });
+    const a = helper(2);
+    const b = helper(3);
+    tickLiveliness([done, a, b], 0.1, { ...ALL, helpers: false }, always);
+    expect([done.hopSec, a.glanceSec, b.glanceSec]).toEqual([0, 0, 0]);
+    expect([a.fx, b.fx]).toEqual([null, null]);
   });
 
   it('a working helper does not fidget, and fidgeting is occasional', () => {

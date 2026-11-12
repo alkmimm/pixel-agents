@@ -7,7 +7,7 @@
  * display preferences. The preferences live in this browser's localStorage and
  * are never sent to the server.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 
 import { Button } from './components/ui/Button.js';
 import { Checkbox } from './components/ui/Checkbox.js';
@@ -36,6 +36,18 @@ export interface ViewerPrefs extends ViewerFeatures {
   compactOffice: boolean;
   /** Coffee breaks, naps and the like (viewer/officeLife.ts). */
   life: boolean;
+  // What each of "Vida no escritório" and "Nível por modelo" includes: on by
+  // default, and only in effect while its option is on (SUB_OPTIONS).
+  lifeCoffee: boolean;
+  lifeSleep: boolean;
+  lifeParty: boolean;
+  lifeChat: boolean;
+  lifeGreet: boolean;
+  lifeHelpers: boolean;
+  lifePet: boolean;
+  gearLevelText: boolean;
+  gearPortrait: boolean;
+  gearFx: boolean;
 }
 
 /** The on/off preferences (everything but the label mode). */
@@ -53,6 +65,16 @@ const DEFAULT_PREFS: ViewerPrefs = {
   rooms: false,
   compactOffice: true,
   life: false,
+  lifeCoffee: true,
+  lifeSleep: true,
+  lifeParty: true,
+  lifeChat: true,
+  lifeGreet: true,
+  lifeHelpers: true,
+  lifePet: true,
+  gearLevelText: true,
+  gearPortrait: true,
+  gearFx: true,
   // Novidades: off until this browser turns them on.
   sessionTitle: false,
   idleTime: false,
@@ -112,6 +134,31 @@ const FEATURE_OPTIONS: Array<{ key: ViewerToggle; label: string; title: string }
   },
 ];
 
+type SubOption = { key: ViewerToggle; label: string; title: string };
+/** What an option includes, each part with its own switch, shown under it while it is on. */
+export const SUB_OPTIONS: Partial<Record<ViewerToggle, SubOption[]>> = {
+  modelLevel: [
+    { key: 'gearLevelText', label: 'Nível no cartão e na lista', title: 'O "Lv." com o modelo e o esforço' },
+    { key: 'gearPortrait', label: 'Equipamento nos retratos', title: 'O cartão do agente e o painel de detalhes' },
+    { key: 'gearFx', label: 'Efeitos de classe', title: 'Faíscas, reflexo e flecha, de vez em quando, em quem está trabalhando' },
+  ],
+  life: [
+    { key: 'lifeCoffee', label: 'Pausa para o café', title: 'Quem está parado vai até o café de vez em quando' },
+    { key: 'lifeSleep', label: 'Cochilo', title: 'Quem está parado há 20 min dorme na cadeira' },
+    { key: 'lifeParty', label: 'Comemoração', title: 'Depois de um turno de 5 min ou mais' },
+    { key: 'lifeChat', label: 'Conversa de corredor', title: 'Dois agentes parados perto um do outro' },
+    { key: 'lifeGreet', label: 'Cumprimento ao cruzar', title: 'Dois agentes que passam um pelo outro andando' },
+    { key: 'lifeHelpers', label: 'Subagentes inquietos', title: 'Pulam ao terminar, conversam com o vizinho e olham em volta' },
+    { key: 'lifePet', label: 'Bicho visita quem espera', title: 'Vai até quem espera você há mais tempo' },
+  ],
+};
+const SUB_KEYS = Object.values(SUB_OPTIONS).flatMap((subs) => subs.map((s) => s.key));
+
+/** Whether a part of an option is in effect: its own switch, and its option's. */
+export function partOn(prefs: ViewerPrefs, option: ViewerToggle, part: ViewerToggle): boolean {
+  return prefs[option] && prefs[part];
+}
+
 /** The agents whose hooks the panel can install (server: providers/hook/others/).
  *  One shows only when the server says the agent is on this machine. */
 const OTHER_AGENTS: Array<{ id: string; label: string; writes: string; undo: string }> = [
@@ -144,7 +191,9 @@ function loadPrefs(): ViewerPrefs {
   const prefs = { ...DEFAULT_PREFS };
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as Record<string, unknown>;
-    for (const key of [...OPTIONS, ...FEATURE_OPTIONS].map((o) => o.key).concat(HIDDEN_TOGGLES)) {
+    for (const key of [...OPTIONS, ...FEATURE_OPTIONS]
+      .map((o) => o.key)
+      .concat(HIDDEN_TOGGLES, SUB_KEYS)) {
       if (typeof saved[key] === 'boolean') prefs[key] = saved[key];
     }
     // "labels" was the old "always visible" checkbox.
@@ -275,9 +324,26 @@ export function ViewerBar({
           )}
           <span className="text-2xs text-text-muted mt-4">Novidades</span>
           {FEATURE_OPTIONS.filter(({ key }) => !embedded || !VIEWER_ONLY.includes(key)).map(({ key, label, title }) => (
-            <span key={key} title={title}>
-              <Checkbox label={label} checked={prefs[key]} onChange={() => onToggle(key)} />
-            </span>
+            <Fragment key={key}>
+              <span title={title}>
+                <Checkbox label={label} checked={prefs[key]} onChange={() => onToggle(key)} />
+              </span>
+              {prefs[key] &&
+                SUB_OPTIONS[key]?.map((sub) => (
+                  <span
+                    key={sub.key}
+                    title={sub.title}
+                    className="pl-12"
+                    data-testid={`viewer-sub-option-${sub.key}`}
+                  >
+                    <Checkbox
+                      label={sub.label}
+                      checked={prefs[sub.key]}
+                      onChange={() => onToggle(sub.key)}
+                    />
+                  </span>
+                ))}
+            </Fragment>
           ))}
         <span className="text-2xs text-text-muted mt-4">Outros agentes</span>
           <span

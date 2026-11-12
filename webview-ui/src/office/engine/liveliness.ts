@@ -8,7 +8,7 @@
  * helm, an arrow from the archer's quiver. The squire has none. Rare on
  * purpose: about one in GEAR_FX_EVERY_SEC of work, per character.
  *
- * With "Vida no escritório" (`social`):
+ * With "Vida no escritório" (`greet`, `helpers`; each has its own option):
  * - two agents that walk past each other sometimes greet (a note over each);
  * - a helper (sub-agent) that finishes its task hops once;
  * - helpers standing idle side by side sometimes turn to each other for a
@@ -79,9 +79,15 @@ export function startLiveliness(): Liveliness {
 
 /** Which of it is on (App.tsx, from the viewer's options). */
 export interface LivelinessOptions {
+  /** Class effects at work. */
   gearFx: boolean;
-  social: boolean;
+  /** Greetings between agents walking past each other. */
+  greet: boolean;
+  /** Helpers that hop when done, talk and look around. */
+  helpers: boolean;
 }
+
+export const NO_LIVELINESS: LivelinessOptions = { gearFx: false, greet: false, helpers: false };
 
 /** What liveliness reads and writes of a character. */
 export interface Lively extends Liveliness {
@@ -150,8 +156,8 @@ export function tickLiveliness(
     }
   }
 
-  if (options.social) {
-    greetInPassing(all, rand);
+  if (options.greet) greetInPassing(all, rand);
+  if (options.helpers) {
     for (const ch of all) {
       if (!ch.isSubagent) continue;
       if (ch.wasActive && !ch.isActive) ch.hopSec = HOP_SEC;

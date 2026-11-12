@@ -69,6 +69,17 @@ describe('office life', () => {
     expect(coffeeSpots(furniture, [{ col: 9, row: 9 }])).toEqual([]);
   });
 
+  it('the coffee machine is a place for coffee too', () => {
+    const machine = [{ type: 'COFFEE_MACHINE', col: 6, row: 1 }];
+    const walkable = [
+      { col: 5, row: 2 },
+      { col: 6, row: 3 },
+      { col: 1, row: 9 },
+    ];
+    expect(coffeeSpots(machine, walkable)).toEqual(walkable.slice(0, 2));
+    expect(coffeeSpots([{ type: 'NEON_COFFEE', col: 6, row: 1 }], walkable)).toEqual([]);
+  });
+
   it('idle agents standing close pair up, each in one pair', () => {
     const pairs = chatPairs([
       { id: 1, col: 0, row: 0 },

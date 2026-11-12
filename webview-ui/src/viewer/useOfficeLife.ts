@@ -38,15 +38,26 @@ interface Trip {
   sipUntil?: number;
 }
 
+/** Which of it is on (Opções → Novidades → Vida no escritório, each part its own switch). */
+export interface LifeParts {
+  coffee: boolean;
+  sleep: boolean;
+  party: boolean;
+  chat: boolean;
+  pet: boolean;
+}
+const ALL_PARTS: LifeParts = { coffee: true, sleep: true, party: true, chat: true, pet: true };
+
 export function useOfficeLife(
   enabled: boolean,
   getOfficeState: () => OfficeState,
   agents: number[],
   agentTools: Record<number, ToolActivity[]>,
+  parts: LifeParts = ALL_PARTS,
 ): (id: number) => string | undefined {
   const moods = useRef(new Map<number, { text: string; until: number }>());
-  const latest = useRef({ agents, agentTools });
-  latest.current = { agents, agentTools };
+  const latest = useRef({ agents, agentTools, parts });
+  latest.current = { agents, agentTools, parts };
 
   useEffect(() => {
     if (!enabled) {
@@ -62,7 +73,7 @@ export function useOfficeLife(
 
     const look = () => {
       const os = getOfficeState();
-      const { agents: ids, agentTools: tools } = latest.current;
+      const { agents: ids, agentTools: tools, parts: on } = latest.current;
       const now = Date.now();
       const elapsed = now - lastLook;
       lastLook = now;
@@ -90,7 +101,7 @@ export function useOfficeLife(
 
         const turn = followTurn(memos.get(id), status.tone, now);
         memos.set(id, turn.memo);
-        if (turn.celebrate) mood(id, MOOD.party, PARTY_MS);
+        if (turn.celebrate && on.party) mood(id, MOOD.party, PARTY_MS);
 
         if (isWaiting(status.tone)) {
           const since = status.since ?? now;
@@ -117,7 +128,7 @@ export function useOfficeLife(
         }
         if (ch.isActive || hasMood(id)) continue;
 
-        if (isSleepy(status.tone, status.since, now)) {
+        if (on.sleep && isSleepy(status.tone, status.since, now)) {
           // Asleep: stays in its chair, once it is back in it.
           if (os.holdSeat(id, 5)) mood(id, MOOD.sleep, LOOK_MS * 2);
           continue;
@@ -126,6 +137,7 @@ export function useOfficeLife(
           standing.push({ id, col: ch.tileCol, row: ch.tileRow });
         }
         if (
+          on.coffee &&
           spots.length > 0 &&
           ch.state !== CharacterState.WALK &&
           Math.random() < coffeeChance(elapsed)
@@ -136,7 +148,7 @@ export function useOfficeLife(
       }
 
       for (const [a, b] of chatPairs(standing)) {
-        if (trips.has(a) || trips.has(b) || Math.random() >= 1 / CHAT_ONE_IN) continue;
+        if (!on.chat || trips.has(a) || trips.has(b) || Math.random() >= 1 / CHAT_ONE_IN) continue;
         for (const id of [a, b]) {
           os.holdStill(id, CHAT_SEC, false);
           mood(id, MOOD.chat, CHAT_SEC * 1000);
@@ -154,7 +166,12 @@ export function useOfficeLife(
         }
         petVisits.delete(petId);
       }
-      if (longestWaiting && petVisits.size === 0 && Math.random() < 1 / PET_VISIT_ONE_IN) {
+      if (
+        on.pet &&
+        longestWaiting &&
+        petVisits.size === 0 &&
+        Math.random() < 1 / PET_VISIT_ONE_IN
+      ) {
         const petId = os.sendPetTo(longestWaiting.id, PET_VISIT_MAX_SEC);
         if (petId) petVisits.set(petId, longestWaiting.id);
       }

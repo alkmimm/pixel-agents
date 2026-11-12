@@ -251,6 +251,14 @@ describe('project rooms: the compact office', () => {
     expect(connected).toBe(true);
     expect(layout.furniture.some((f) => f.uid === 'base-desk')).toBe(false);
     expect(layout.furniture.some((f) => f.type === 'COFFEE')).toBe(true);
+    // The coffee corner: the machine and its neon sign, inside the plan.
+    for (const type of ['COFFEE_MACHINE', 'NEON_COFFEE']) {
+      const item = layout.furniture.find((f) => f.type === type)!;
+      expect(item, type).toBeDefined();
+      expect(item.row, type).toBeGreaterThanOrEqual(0);
+      expect(item.col, type).toBeGreaterThan(0);
+      expect(item.col + 1, type).toBeLessThan(layout.cols);
+    }
     expect(layout.pets).toEqual([{ id: 'cat', petType: 0 }]);
     expect(layout.tiles).toHaveLength(layout.cols * layout.rows);
     expect(layout.tileColors).toHaveLength(layout.tiles.length);

@@ -30,6 +30,8 @@ export const CHAT_SEC = 4;
 export const CHAT_REACH_TILES = 2;
 /** The longest time one look stands for. */
 export const MAX_LOOK_MS = 5_000;
+/** Where there is coffee: the cup on a table, and the machine. */
+const COFFEE_TYPES: ReadonlySet<string> = new Set(['COFFEE', 'COFFEE_MACHINE']);
 /** How far from the coffee (in steps) still counts as "at the coffee". */
 const COFFEE_REACH_TILES = 3;
 
@@ -95,7 +97,7 @@ export function coffeeSpots(
 ): Tile[] {
   const spots = new Map<string, Tile>();
   for (const item of furniture) {
-    if (item.type.split(':')[0] !== 'COFFEE') continue;
+    if (!COFFEE_TYPES.has(item.type.split(':')[0])) continue;
     const steps = (t: Tile) => Math.abs(t.col - item.col) + Math.abs(t.row - item.row);
     const near = walkable.filter((t) => steps(t) <= COFFEE_REACH_TILES);
     if (near.length === 0) continue;

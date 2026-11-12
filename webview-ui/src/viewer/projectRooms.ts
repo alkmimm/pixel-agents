@@ -356,6 +356,10 @@ function composeCompact(base: OfficeLayout, specs: readonly RoomState[]): Compos
   add('sofa-esq', 'SOFA_SIDE', tableCol - 1, tableRow);
   add('sofa-dir', 'SOFA_SIDE:left', tableCol + 2, tableRow);
   add('cafe', 'COFFEE', tableCol, tableRow + 1);
+  // The coffee corner: the machine against the top wall (its upper half over
+  // the wall), under the neon sign (scripts/coffee-corner-art.py).
+  add('maquina-cafe', 'COFFEE_MACHINE', ROOM_PITCH - 2, loungeTop - 1);
+  add('neon-cafe', 'NEON_COFFEE', tableCol, loungeTop - 2);
   add('planta-1', PLANT, 1, loungeTop);
   add('planta-2', 'PLANT_2', ROOM_PITCH - 1, loungeTop);
   add('lixeira', 'BIN', 1, loungeBottom);

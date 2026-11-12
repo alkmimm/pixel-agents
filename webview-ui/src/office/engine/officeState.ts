@@ -51,7 +51,12 @@ import {
   updateHelper,
   type WanderPace,
 } from './characters.js';
-import { isLively, type LivelinessOptions, tickLiveliness } from './liveliness.js';
+import {
+  isLively,
+  type LivelinessOptions,
+  NO_LIVELINESS,
+  tickLiveliness,
+} from './liveliness.js';
 import { advanceMatrixEffect, startMatrixEffect } from './matrixEffectState.js';
 import { createPet, updatePet } from './petEntity.js';
 import { anchorTile, closestFreeSeat } from './seatPlacement.js';
@@ -176,7 +181,7 @@ export class OfficeState {
    */
   greeter: Character | null = null;
   /** pixel-agents-secure (local): which of liveliness.ts is on (App.tsx, from the options). */
-  liveliness: LivelinessOptions = { gearFx: false, social: false };
+  liveliness: LivelinessOptions = NO_LIVELINESS;
 
   /** World-space point the camera drifts to while the greeter is up
    *  (the bubble overlay recomputes it every frame: the combined center of the

@@ -71,10 +71,10 @@ import { dressCharacters } from './viewer/modelLevel.js';
 import { AgentsPanel } from './viewer/AgentsPanel.js';
 import { AttentionInbox } from './viewer/AttentionInbox.js';
 import { projectAliases, shownProjectName } from './viewer/roomNames.js';
-import { useOfficeLife } from './viewer/useOfficeLife.js';
+import { type LifeParts, useOfficeLife } from './viewer/useOfficeLife.js';
 import { useProjectRooms } from './viewer/useProjectRooms.js';
 import { useAttentionTitle } from './viewer/useAttentionTitle.js';
-import { ViewerBar, useViewerPrefs } from './ViewerBar.js';
+import { partOn, ViewerBar, useViewerPrefs } from './ViewerBar.js';
 import { canvasDpr } from './viewScale.js';
 
 // Game state lives outside React — updated imperatively by message handlers
@@ -270,21 +270,25 @@ function App() {
       signals: viewerPrefs.signals,
       permissionMode: viewerPrefs.permissionMode,
       inbox: viewerPrefs.inbox,
-      modelLevel: viewerPrefs.modelLevel,
+      modelLevel: partOn(viewerPrefs, 'modelLevel', 'gearLevelText'),
     }),
     [viewerPrefs],
   );
   const allSignals = useAllSignals();
   // pixel-agents-secure (local): each character in its model's gear.
   useEffect(() => {
-    setModelGearOn(features.modelLevel);
-    dressCharacters(getOfficeState().characters.values(), allSignals, features.modelLevel);
-  }, [allSignals, features.modelLevel, agents, subagentCharacters]);
+    setModelGearOn(partOn(viewerPrefs, 'modelLevel', 'gearPortrait'));
+    dressCharacters(getOfficeState().characters.values(), allSignals, viewerPrefs.modelLevel);
+  }, [allSignals, viewerPrefs, agents, subagentCharacters]);
   // pixel-agents-secure (local): class effects at work, greetings in passing
   // and helpers that fidget (office/engine/liveliness.ts).
   useEffect(() => {
-    getOfficeState().liveliness = { gearFx: features.modelLevel, social: viewerPrefs.life };
-  }, [features.modelLevel, viewerPrefs.life]);
+    getOfficeState().liveliness = {
+      gearFx: partOn(viewerPrefs, 'modelLevel', 'gearFx'),
+      greet: partOn(viewerPrefs, 'life', 'lifeGreet'),
+      helpers: partOn(viewerPrefs, 'life', 'lifeHelpers'),
+    };
+  }, [viewerPrefs]);
   useEffect(() => {
     if (!officeReadOnly) return;
     const always = viewerPrefs.labelMode === 'always';
@@ -378,7 +382,17 @@ function App() {
 
   // pixel-agents-secure (local): coffee breaks, naps and the like.
   const lifeOn = viewerPrefs.life;
-  const lifeEmote = useOfficeLife(lifeOn, getOfficeState, agents, agentTools);
+  const lifeParts = useMemo<LifeParts>(
+    () => ({
+      coffee: viewerPrefs.lifeCoffee,
+      sleep: viewerPrefs.lifeSleep,
+      party: viewerPrefs.lifeParty,
+      chat: viewerPrefs.lifeChat,
+      pet: viewerPrefs.lifePet,
+    }),
+    [viewerPrefs],
+  );
+  const lifeEmote = useOfficeLife(lifeOn, getOfficeState, agents, agentTools, lifeParts);
 
   // pixel-agents-secure (local): the agent whose details panel is open
   // (read-only office only), and the tab title counting who needs you.
