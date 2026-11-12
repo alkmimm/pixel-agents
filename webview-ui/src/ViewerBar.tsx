@@ -48,6 +48,7 @@ export interface ViewerPrefs extends ViewerFeatures {
   lifeRobot: boolean;
   lifeGame: boolean;
   lifeRoam: boolean;
+  lifePairs: boolean;
   gearLevelText: boolean;
   gearPortrait: boolean;
   gearFx: boolean;
@@ -78,6 +79,7 @@ const DEFAULT_PREFS: ViewerPrefs = {
   lifeRobot: true,
   lifeGame: true,
   lifeRoam: true,
+  lifePairs: true,
   gearLevelText: true,
   gearPortrait: true,
   gearFx: true,
@@ -176,6 +178,12 @@ export const SUB_OPTIONS: Partial<Record<ViewerToggle, SubOption[]>> = {
       key: 'lifeRoam',
       label: 'Ociosos circulam mais',
       title: 'Quem está parado descansa menos tempo na cadeira, anda mais e sai mais da própria sala',
+    },
+    {
+      key: 'lifePairs',
+      label: 'Atividades em dupla',
+      title:
+        'Às vezes quem vai tomar café ou jogar chama um colega parado: vai até ele, os dois se cumprimentam e saem juntos',
     },
   ],
 };

@@ -402,6 +402,7 @@ function App() {
       robot: viewerPrefs.lifeRobot,
       game: viewerPrefs.lifeGame,
       roam: viewerPrefs.lifeRoam,
+      pairs: viewerPrefs.lifePairs,
     }),
     [viewerPrefs],
   );

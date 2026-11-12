@@ -44,6 +44,7 @@ export const MOOD = {
   party: '🎉',
   chat: '…',
   game: '🎮',
+  yes: '👍',
 } as const;
 
 type Tile = { col: number; row: number };
