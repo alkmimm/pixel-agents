@@ -61,7 +61,9 @@ it('every gear has its own sheet in the wardrobe, and a headgear its hair mask',
   // The squire is bare-headed; the others cover the hair.
   expect(MODELS.map((m) => gearArt(modelGear(m))!.hide !== undefined)).toEqual([false, true, true, true]);
   // No gear art is left over: the wardrobe refuses a PNG it does not expect.
-  const expected = new Set(GEARS.flatMap((g) => Object.values(gearArt(g)!)));
+  const expected = new Set(
+    GEARS.flatMap((g) => Object.values(gearArt(g)!)).filter((art) => art !== undefined),
+  );
   expect([...files.keys()].filter((f) => f.startsWith('gear/')).sort()).toEqual([...expected].sort());
 });
 
