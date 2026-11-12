@@ -140,21 +140,19 @@ test('a mate called back to work frees the other at once', () => {
   assert.equal(director.activityOf(2), undefined);
 });
 
-test('the director walks an idle agent: it strolls from place to place, never by itself', () => {
-  const { os, second, ids } = office();
-  // A third agent with no chair of its own: it stands, so it strolls.
-  restoreAgent(os, { id: 3 });
-  ids.push(3);
-  const c = os.characters.get(3)!;
-  assert.equal(c.seatId ?? null, null);
+test('the director walks an idle agent: it leaves its chair, stops at a few places and comes back', () => {
+  const { os, second, a } = office();
   second();
   assert.equal(os.directed, true);
   const stops = new Set<string>();
-  for (let s = 0; s < 150; s++) {
+  let cameBack = false;
+  for (let s = 0; s < 900 && !cameBack; s++) {
     second();
-    if (c.state === CharacterState.IDLE) stops.add(`${c.tileCol},${c.tileRow}`);
+    if (a.state === CharacterState.IDLE) stops.add(`${a.tileCol},${a.tileRow}`);
+    cameBack = stops.size > 0 && a.state === CharacterState.TYPE;
   }
   assert.ok(stops.size >= 3, `it stopped at only ${stops.size} places`);
+  assert.ok(cameBack, 'it never went back to its chair');
 });
 
 test('the robot takes the cups left on the table', () => {
