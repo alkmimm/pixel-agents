@@ -251,16 +251,19 @@ function armSprite(length: number, vertical: boolean, flip: boolean): SpriteData
   let sprite = armSprites.get(key);
   if (!sprite) {
     // Drawn pointing right, 6 pixels across the body: arms on rows 1 and 4.
-    const rows: string[][] = Array.from({ length: 6 }, (_, y) =>
-      Array.from({ length }, (_, x) => {
-        if (y !== 1 && y !== 4) return x === length - 1 && (y === 0 || y === 2 || y === 3 || y === 5) ? CLAW : _;
-        return x === length - 1 ? CLAW : ARM;
+    const rows: string[][] = Array.from({ length: 6 }, (_row, y) =>
+      Array.from({ length }, (_cell, x): string => {
+        const tip = x === length - 1;
+        // The claw is the whole far end; the arms are rows 1 and 4.
+        if (y !== 1 && y !== 4) return tip ? CLAW : _;
+        return tip ? CLAW : ARM;
       }),
     );
     let out = flip ? rows.map((row) => [...row].reverse()) : rows;
     if (vertical) {
       // Columns become rows: pointing down, or up when flipped.
-      out = Array.from({ length }, (_, y) => out.map((row) => row[y]));
+      const across = out;
+      out = Array.from({ length }, (_row, y): string[] => across.map((row) => row[y]));
     }
     sprite = out;
     armSprites.set(key, sprite);

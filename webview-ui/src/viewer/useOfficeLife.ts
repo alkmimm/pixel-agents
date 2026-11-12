@@ -123,8 +123,8 @@ export function useOfficeLife(
     let lastLook = Date.now();
     // The first round comes soon, so the robot is seen at work.
     let nextRound = Date.now() + ROBOT_FIRST_MS;
-    const pick = (tiles: readonly Tile[]): Tile | undefined =>
-      tiles[Math.floor(Math.random() * tiles.length)];
+    const pick = <T>(items: readonly T[]): T | undefined =>
+      items[Math.floor(Math.random() * items.length)];
 
     const look = () => {
       const os = getOfficeState();
