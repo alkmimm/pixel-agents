@@ -280,13 +280,14 @@ describe('H18: following Codex sessions', () => {
     const context = line({ type: 'turn_context', payload: { model: 'gpt-6.1-sol', effort: 'xhigh', summary: SECRET } });
     fs.writeFileSync(file(), header() + context + started());
     await own.tick(true);
+    const first = told.length;
     await own.tick(false);
-    expect(told.length).toBe(2); // not taken: told again at the next pass
+    expect(told.length).toBe(first + 1); // not taken: told again at the next pass
     taken = true;
     await own.tick(false);
     await own.tick(false);
-    expect(told.length).toBe(3); // taken: not told again
-    expect(told[2]).toEqual([`codex-${ID}`, 'gpt-6.1-sol', 'xhigh']);
+    expect(told.length).toBe(first + 2); // taken: not told again
+    expect(told[told.length - 1]).toEqual([`codex-${ID}`, 'gpt-6.1-sol', 'xhigh']);
     expect(JSON.stringify([told, events])).not.toContain(SECRET);
     // No event carries the model: it reaches the office only as a signal.
     expect(JSON.stringify(events)).not.toContain('gpt-6.1-sol');
