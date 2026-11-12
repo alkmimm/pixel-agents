@@ -159,7 +159,7 @@ test('a sofa or a pouf is never given as an agent\'s own seat, and stays free fo
     furniture: [
       { uid: 'desk', type: 'TEST_CHAIR', col: 6, row: 5 },
       { uid: 'pouf', type: 'POUF', col: 1, row: 1 },
-      { uid: 'sofa', type: 'SOFA_SIDE:left', col: 2, row: 1 },
+      { uid: 'sofa', type: 'SOFA_SIDE', col: 2, row: 1 },
     ],
   });
   // Three agents, one chair: the first gets it; the others get no seat rather than a sofa.
