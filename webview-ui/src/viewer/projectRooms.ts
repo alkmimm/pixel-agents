@@ -57,6 +57,8 @@ const PC = 'PC_FRONT_OFF';
 const CHAIR = 'CUSHIONED_BENCH';
 const PLANT = 'PLANT';
 
+/** The neon sign over the lounge's sofas, hung on the wall. */
+export const NEON_SIGN = 'NEON_COFFEE';
 /** The lounge of the compact office: 7x7 inside, centred on the corridor. */
 const LOUNGE_HALF = 3;
 const WALL_COLOR: ColorValue = { h: 222, s: 28, b: -100, c: -55 };
@@ -356,10 +358,11 @@ function composeCompact(base: OfficeLayout, specs: readonly RoomState[]): Compos
   add('sofa-esq', 'SOFA_SIDE', tableCol - 1, tableRow);
   add('sofa-dir', 'SOFA_SIDE:left', tableCol + 2, tableRow);
   add('cafe', 'COFFEE', tableCol, tableRow + 1);
-  // The coffee corner: the machine against the top wall (its upper half over
-  // the wall), under the neon sign (scripts/coffee-corner-art.py).
-  add('maquina-cafe', 'COFFEE_MACHINE', ROOM_PITCH - 2, loungeTop - 1);
-  add('neon-cafe', 'NEON_COFFEE', tableCol, loungeTop - 2);
+  // The coffee corner (scripts/coffee-corner-art.py): the machine at the top
+  // of the lounge and, hung on the wall over the sofas, the neon sign. The
+  // sign is the one piece of furniture on a wall: its lower row is the wall's.
+  add('maquina-cafe', 'COFFEE_MACHINE', ROOM_PITCH - 2, loungeTop);
+  add('neon-cafe', NEON_SIGN, tableCol, loungeTop - 2);
   add('planta-1', PLANT, 1, loungeTop);
   add('planta-2', 'PLANT_2', ROOM_PITCH - 1, loungeTop);
   add('lixeira', 'BIN', 1, loungeBottom);
